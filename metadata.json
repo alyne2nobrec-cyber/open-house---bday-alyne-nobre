@@ -1,0 +1,6 @@
+{
+  "name": "Open House & Bday Alyne Nobre",
+  "description": "Convite digital, confirmação de presença (RSVP) e lista de presentes inteligente para o Open House + Aniversário + Chá de Casa Nova da Alyne.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
