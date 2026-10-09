@@ -78,10 +78,15 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAdmin, isAdmin }) => {
           <button
             onClick={onOpenAdmin}
             aria-label="Acessar painel administrativo"
-            title="Painel Administrativo"
-            className="h-10 w-10 inline-flex items-center justify-center rounded-lg border border-[#EADBCE] text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F2ECE6] transition-colors cursor-pointer"
+            title={isAdmin ? "Painel da Anfitriã (Conectado)" : "Área da Anfitriã (Admin)"}
+            className={`h-10 px-3 inline-flex items-center justify-center gap-1.5 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+              isAdmin
+                ? 'bg-[#FBF0EB] border-[#C86D51]/30 text-[#C86D51] hover:bg-[#F3E7DE]'
+                : 'border-[#EADBCE] text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F2ECE6]'
+            }`}
           >
-            <Lock className="w-4 h-4" />
+            <Lock className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{isAdmin ? 'Painel' : 'Anfitriã'}</span>
           </button>
 
           {/* Mobile hamburger */}
@@ -132,6 +137,16 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenAdmin, isAdmin }) => {
           >
             <MapPin className="w-4 h-4 text-[#C86D51]" />
             Como Chegar
+          </button>
+          <button
+            onClick={() => {
+              setMobileMenuOpen(false);
+              onOpenAdmin();
+            }}
+            className="w-full text-left py-2.5 text-base font-medium text-[#C86D51] flex items-center gap-3 border-t border-[#F0E6DE] pt-3"
+          >
+            <Lock className="w-4 h-4 text-[#C86D51]" />
+            {isAdmin ? 'Painel da Anfitriã' : 'Área da Anfitriã (Admin)'}
           </button>
           <div className="pt-2">
             <button

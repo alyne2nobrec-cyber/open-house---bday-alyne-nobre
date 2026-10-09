@@ -7,86 +7,170 @@ import {
   addDoc,
   updateDoc,
   deleteDoc,
-  getDocs,
   query,
   orderBy,
-  writeBatch
+  writeBatch,
+  getDocs,
 } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { db, isFirebaseConfigured } from '../lib/firebase';
 import { Gift, GiftReservation } from '../types';
-import { INITIAL_GIFTS } from '../data/defaultData';
+import { INITIAL_GIFTS, INITIAL_RESERVATIONS } from '../data/defaultData';
 
 const GIFTS_COLLECTION = 'gifts';
 const RESERVATIONS_COLLECTION = 'giftReservations';
-const LOCAL_STORAGE_GIFTS_KEY = 'alyne_gifts_cache_v1';
-const LOCAL_STORAGE_RESERVATIONS_KEY = 'alyne_reservations_cache_v1';
 
-// Helpers for resilient local caching
-function getLocalGifts(): Gift[] {
+const LOCAL_CUSTOM_GIFTS_KEY = 'alyne_custom_gifts_v2';
+const LOCAL_GIFT_OVERRIDES_KEY = 'alyne_gift_overrides_v2';
+const LOCAL_DELETED_GIFTS_KEY = 'alyne_deleted_gifts_v2';
+const LOCAL_RESERVATIONS_KEY = 'alyne_reservations_cache_v2';
+
+let localGiftListeners: Array<(gifts: Gift[]) => void> = [];
+let localReservationListeners: Array<(reservations: GiftReservation[]) => void> = [];
+
+export function getLocalStoredReservations(): GiftReservation[] {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_GIFTS_KEY);
-    if (raw) return JSON.parse(raw);
+    const raw = localStorage.getItem(LOCAL_RESERVATIONS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
   } catch (e) {
-    console.warn('LocalStorage error:', e);
+    console.warn('Error reading local reservations:', e);
   }
-  return INITIAL_GIFTS.map((g, idx) => ({
+
+  // Seed default reservations
+  const seeded = [...INITIAL_RESERVATIONS];
+  try {
+    localStorage.setItem(LOCAL_RESERVATIONS_KEY, JSON.stringify(seeded));
+  } catch {}
+  return seeded;
+}
+
+function saveLocalReservations(list: GiftReservation[]) {
+  try {
+    localStorage.setItem(LOCAL_RESERVATIONS_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.warn('Error saving local reservations:', e);
+  }
+}
+
+function notifyReservationListeners() {
+  const list = getLocalStoredReservations();
+  localReservationListeners.forEach((fn) => fn(list));
+}
+
+function getLocalCustomGifts(): Gift[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_CUSTOM_GIFTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getLocalGiftOverrides(): Record<string, Partial<Gift>> {
+  try {
+    const raw = localStorage.getItem(LOCAL_GIFT_OVERRIDES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function getLocalDeletedGifts(): string[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_DELETED_GIFTS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function getLocalMergedGifts(): Gift[] {
+  const custom = getLocalCustomGifts();
+  const overrides = getLocalGiftOverrides();
+  const deleted = new Set(getLocalDeletedGifts());
+
+  const reservations = getLocalStoredReservations();
+  const reservedCounts: Record<string, number> = {};
+  for (const res of reservations) {
+    reservedCounts[res.giftId] = (reservedCounts[res.giftId] || 0) + (res.quantity || 1);
+  }
+
+  const baseGifts: Gift[] = INITIAL_GIFTS.map((g, idx) => ({
     ...g,
     id: `gift-seed-${idx + 1}`,
   }));
+
+  const all = [...custom, ...baseGifts]
+    .filter((g) => !deleted.has(g.id))
+    .map((g) => {
+      const override = overrides[g.id] || {};
+      const merged = { ...g, ...override };
+      const reserved =
+        reservedCounts[merged.id] !== undefined
+          ? reservedCounts[merged.id]
+          : Number(merged.reservedQuantity || 0);
+      const total = Number(merged.totalQuantity || 1);
+      const available = Math.max(0, total - reserved);
+      const status =
+        merged.status === 'unavailable'
+          ? 'unavailable'
+          : available <= 0
+          ? 'sold_out'
+          : 'available';
+      return {
+        ...merged,
+        reservedQuantity: reserved,
+        availableQuantity: available,
+        status: status as Gift['status'],
+      };
+    });
+
+  return all;
 }
 
-function saveLocalGifts(gifts: Gift[]) {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_GIFTS_KEY, JSON.stringify(gifts));
-  } catch (e) {
-    console.warn('LocalStorage save error:', e);
-  }
+function notifyGiftListeners() {
+  const merged = getLocalMergedGifts();
+  localGiftListeners.forEach((fn) => fn(merged));
 }
 
-function getLocalReservations(): GiftReservation[] {
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_RESERVATIONS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch (e) {
-    console.warn('LocalStorage error:', e);
-  }
-  return [];
-}
+const isAdminUser = () => {
+  return typeof window !== 'undefined' && !!localStorage.getItem('alyne_admin_logged_in');
+};
 
-function saveLocalReservation(reservation: GiftReservation) {
-  try {
-    const list = getLocalReservations();
-    list.unshift(reservation);
-    localStorage.setItem(LOCAL_STORAGE_RESERVATIONS_KEY, JSON.stringify(list));
-  } catch (e) {
-    console.warn('LocalStorage save error:', e);
-  }
-}
-
-/**
- * Real-time subscription to gifts collection.
- * If collection is empty, automatically populates with INITIAL_GIFTS.
- */
 export function subscribeGifts(callback: (gifts: Gift[]) => void) {
+  if (!isFirebaseConfigured) {
+    localGiftListeners.push(callback);
+    callback(getLocalMergedGifts());
+    return () => {
+      localGiftListeners = localGiftListeners.filter((fn) => fn !== callback);
+    };
+  }
+
   const giftsRef = collection(db, GIFTS_COLLECTION);
-  let isInitial = true;
+  let shouldSeed = true;
 
   const unsubscribe = onSnapshot(
     giftsRef,
     async (snapshot) => {
-      if (snapshot.empty && isInitial) {
-        isInitial = false;
-        // Seed initial gifts to Firestore
-        try {
-          await seedGiftsToFirestore();
-        } catch (err) {
-          console.warn('Could not seed directly to Firestore, using local fallback:', err);
-          callback(getLocalGifts());
+      if (snapshot.empty && shouldSeed) {
+        shouldSeed = false;
+        if (isAdminUser()) {
+          try {
+            await seedGiftsToFirestore();
+            return;
+          } catch (err) {
+            console.warn('Could not seed gifts to Firestore:', err);
+          }
         }
+        callback(INITIAL_GIFTS.map((g, idx) => ({ ...g, id: `gift-seed-${idx + 1}` })));
         return;
       }
 
-      isInitial = false;
+      shouldSeed = false;
       const items: Gift[] = snapshot.docs.map((docSnap) => {
         const data = docSnap.data();
         return {
@@ -109,28 +193,23 @@ export function subscribeGifts(callback: (gifts: Gift[]) => void) {
         };
       });
 
-      // Sort by creation or natural order
       items.sort((a, b) => {
         if (a.status === 'sold_out' && b.status !== 'sold_out') return 1;
         if (a.status !== 'sold_out' && b.status === 'sold_out') return -1;
         return a.name.localeCompare(b.name);
       });
 
-      saveLocalGifts(items);
       callback(items);
     },
     (error) => {
-      console.warn('Firestore subscription error (using cached fallback):', error.message);
-      callback(getLocalGifts());
+      console.warn('Firestore subscription error:', error.message);
+      callback(INITIAL_GIFTS.map((g, idx) => ({ ...g, id: `gift-seed-${idx + 1}` })));
     }
   );
 
   return unsubscribe;
 }
 
-/**
- * Seed initial gifts to Firestore
- */
 export async function seedGiftsToFirestore(): Promise<void> {
   const batch = writeBatch(db);
   const giftsRef = collection(db, GIFTS_COLLECTION);
@@ -147,18 +226,15 @@ export async function seedGiftsToFirestore(): Promise<void> {
   await batch.commit();
 }
 
-/**
- * Concurrency-controlled gift reservation via Firestore Transaction.
- * Ensures availableQuantity - requestedQuantity >= 0 atomically.
- */
 export async function reserveGiftWithTransaction(params: {
   giftId: string;
+  giftName?: string;
   guestName: string;
   guestWhatsapp: string;
   quantity: number;
   message?: string;
 }): Promise<{ success: boolean; message?: string }> {
-  const { giftId, guestName, guestWhatsapp, quantity, message } = params;
+  const { giftId, giftName, guestName, guestWhatsapp, quantity, message } = params;
 
   if (quantity <= 0) {
     throw new Error('A quantidade precisa ser de pelo menos 1.');
@@ -167,9 +243,37 @@ export async function reserveGiftWithTransaction(params: {
     throw new Error('Por favor, informe seu nome para a Alyne saber quem é!');
   }
 
-  try {
-    const giftRef = doc(db, GIFTS_COLLECTION, giftId);
+  // Resolve gift name
+  const currentGifts = getLocalMergedGifts();
+  const foundGift = currentGifts.find((g) => g.id === giftId);
+  const resolvedGiftName = giftName?.trim() || foundGift?.name || 'Presente Especial';
 
+  if (!isFirebaseConfigured) {
+    try {
+      const reservations = getLocalStoredReservations();
+      const newReservation: GiftReservation = {
+        id: `local-res-${Date.now()}`,
+        giftId,
+        giftName: resolvedGiftName,
+        guestName: guestName.trim(),
+        guestWhatsapp: guestWhatsapp.trim(),
+        quantity,
+        message: message?.trim() || '',
+        createdAt: new Date().toISOString(),
+      };
+      reservations.unshift(newReservation);
+      saveLocalReservations(reservations);
+      notifyReservationListeners();
+      notifyGiftListeners();
+    } catch (e) {
+      console.warn('LocalStorage reservation save error:', e);
+    }
+    return { success: true };
+  }
+
+  const giftRef = doc(db, GIFTS_COLLECTION, giftId);
+
+  try {
     await runTransaction(db, async (transaction) => {
       const giftDoc = await transaction.get(giftRef);
 
@@ -179,6 +283,11 @@ export async function reserveGiftWithTransaction(params: {
 
       const data = giftDoc.data();
       const currentAvailable = Number(data.availableQuantity ?? 0);
+      const status = data.status || 'available';
+
+      if (status !== 'available') {
+        throw new Error('Poxa! Esse presente não está disponível no momento.');
+      }
 
       if (currentAvailable < quantity) {
         throw new Error('Poxa! Alguém acabou de pegar essa última cota. 😭');
@@ -186,9 +295,8 @@ export async function reserveGiftWithTransaction(params: {
 
       const newAvailable = currentAvailable - quantity;
       const newReserved = Number(data.reservedQuantity || 0) + quantity;
-      const newStatus = newAvailable <= 0 ? 'sold_out' : data.status || 'available';
+      const newStatus = newAvailable <= 0 ? 'sold_out' : status;
 
-      // 1. Update the gift document
       transaction.update(giftRef, {
         availableQuantity: newAvailable,
         reservedQuantity: newReserved,
@@ -196,11 +304,10 @@ export async function reserveGiftWithTransaction(params: {
         updatedAt: serverTimestamp(),
       });
 
-      // 2. Create the reservation log document
       const reservationRef = doc(collection(db, RESERVATIONS_COLLECTION));
       transaction.set(reservationRef, {
         giftId,
-        giftName: data.name || '',
+        giftName: data.name || resolvedGiftName,
         guestName: guestName.trim(),
         guestWhatsapp: guestWhatsapp.trim(),
         quantity,
@@ -210,48 +317,34 @@ export async function reserveGiftWithTransaction(params: {
     });
 
     return { success: true };
-  } catch (error: any) {
-    // If permission or offline fallback is needed, update local cache
-    if (error.message && error.message.includes('Poxa!')) {
-      throw error;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Não foi possível concluir a reserva.';
+
+    if (message.includes('Poxa!')) {
+      throw new Error(message);
     }
 
-    console.warn('Transaction failed, applying local state guarantee:', error);
-    // Local fallback update so user flow never breaks
-    const localGifts = getLocalGifts();
-    const idx = localGifts.findIndex((g) => g.id === giftId);
-    if (idx !== -1) {
-      const g = localGifts[idx];
-      if (g.availableQuantity < quantity) {
-        throw new Error('Poxa! Alguém acabou de pegar essa última cota. 😭');
-      }
-      g.availableQuantity -= quantity;
-      g.reservedQuantity += quantity;
-      if (g.availableQuantity <= 0) g.status = 'sold_out';
-      saveLocalGifts(localGifts);
-
-      saveLocalReservation({
-        id: `res-${Date.now()}`,
-        giftId,
-        giftName: g.name,
-        guestName: guestName.trim(),
-        guestWhatsapp: guestWhatsapp.trim(),
-        quantity,
-        message: message?.trim() || '',
-        createdAt: new Date().toISOString(),
-      });
-
-      return { success: true };
+    if (message.includes('permission') || message.includes('permissão')) {
+      throw new Error('Permissão negada ao reservar o presente.');
     }
 
-    throw new Error(error.message || 'Não foi possível concluir a reserva.');
+    if (message.includes('network') || message.includes('offline') || message.includes('fetch')) {
+      throw new Error('Sem conexão. Tente novamente em alguns segundos.');
+    }
+
+    throw new Error(message || 'Não foi possível concluir a reserva.');
   }
 }
 
-/**
- * Subscribe to reservations list (for Admin)
- */
 export function subscribeReservations(callback: (reservations: GiftReservation[]) => void) {
+  if (!isFirebaseConfigured) {
+    localReservationListeners.push(callback);
+    callback(getLocalStoredReservations());
+    return () => {
+      localReservationListeners = localReservationListeners.filter((cb) => cb !== callback);
+    };
+  }
+
   const ref = collection(db, RESERVATIONS_COLLECTION);
   const q = query(ref, orderBy('createdAt', 'desc'));
 
@@ -275,16 +368,31 @@ export function subscribeReservations(callback: (reservations: GiftReservation[]
     },
     (err) => {
       console.warn('Error fetching reservations:', err);
-      callback(getLocalReservations());
+      callback([]);
     }
   );
 }
 
-/**
- * Admin CRUD operations
- */
 export async function createGift(giftData: Omit<Gift, 'id'>): Promise<string> {
   const total = Number(giftData.totalQuantity || 1);
+
+  if (!isFirebaseConfigured) {
+    const id = `gift-custom-${Date.now()}`;
+    const newGift: Gift = {
+      ...giftData,
+      id,
+      totalQuantity: total,
+      availableQuantity: total,
+      reservedQuantity: 0,
+      status: total > 0 ? 'available' : 'sold_out',
+    };
+    const list = getLocalCustomGifts();
+    list.unshift(newGift);
+    localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(list));
+    notifyGiftListeners();
+    return id;
+  }
+
   const docRef = await addDoc(collection(db, GIFTS_COLLECTION), {
     ...giftData,
     totalQuantity: total,
@@ -298,8 +406,23 @@ export async function createGift(giftData: Omit<Gift, 'id'>): Promise<string> {
 }
 
 export async function updateGift(giftId: string, giftData: Partial<Gift>): Promise<void> {
+  if (!isFirebaseConfigured) {
+    const list = getLocalCustomGifts();
+    const index = list.findIndex((g) => g.id === giftId);
+    if (index >= 0) {
+      list[index] = { ...list[index], ...giftData };
+      localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(list));
+    } else {
+      const overrides = getLocalGiftOverrides();
+      overrides[giftId] = { ...(overrides[giftId] || {}), ...giftData };
+      localStorage.setItem(LOCAL_GIFT_OVERRIDES_KEY, JSON.stringify(overrides));
+    }
+    notifyGiftListeners();
+    return;
+  }
+
   const giftRef = doc(db, GIFTS_COLLECTION, giftId);
-  const updates: any = {
+  const updates: Record<string, unknown> = {
     ...giftData,
     updatedAt: serverTimestamp(),
   };
@@ -308,6 +431,19 @@ export async function updateGift(giftId: string, giftData: Partial<Gift>): Promi
 }
 
 export async function deleteGift(giftId: string): Promise<void> {
+  if (!isFirebaseConfigured) {
+    const list = getLocalCustomGifts().filter((g) => g.id !== giftId);
+    localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(list));
+
+    const deleted = getLocalDeletedGifts();
+    if (!deleted.includes(giftId)) {
+      deleted.push(giftId);
+      localStorage.setItem(LOCAL_DELETED_GIFTS_KEY, JSON.stringify(deleted));
+    }
+    notifyGiftListeners();
+    return;
+  }
+
   await deleteDoc(doc(db, GIFTS_COLLECTION, giftId));
 }
 

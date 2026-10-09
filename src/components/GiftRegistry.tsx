@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles } from 'lucide-react';
+import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown } from 'lucide-react';
 import { Gift, GiftCategory } from '../types';
 
 interface GiftRegistryProps {
   gifts: Gift[];
   onSelectGift: (gift: Gift) => void;
 }
+
+type SortOption = 'default' | 'price-asc' | 'price-desc' | 'name';
 
 const CATEGORIES: { id: GiftCategory; label: string; icon: string }[] = [
   { id: 'todos', label: 'Todos', icon: '✨' },
@@ -21,10 +23,11 @@ const CATEGORIES: { id: GiftCategory; label: string; icon: string }[] = [
 export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift }) => {
   const [selectedCategory, setSelectedCategory] = useState<GiftCategory>('todos');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<SortOption>('default');
 
-  // Filtered gifts list
+  // Filtered and sorted gifts list
   const filteredGifts = useMemo(() => {
-    return gifts.filter((gift) => {
+    const list = gifts.filter((gift) => {
       const matchCat =
         selectedCategory === 'todos' ||
         gift.category === selectedCategory ||
@@ -36,7 +39,26 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
 
       return matchCat && matchSearch;
     });
-  }, [gifts, selectedCategory, searchQuery]);
+
+    return [...list].sort((a, b) => {
+      // Prioritize available gifts over sold-out ones
+      const aSoldOut = a.status === 'sold_out' || a.availableQuantity <= 0;
+      const bSoldOut = b.status === 'sold_out' || b.availableQuantity <= 0;
+      if (aSoldOut && !bSoldOut) return 1;
+      if (!aSoldOut && bSoldOut) return -1;
+
+      if (sortBy === 'price-asc') {
+        return (a.price || 0) - (b.price || 0);
+      }
+      if (sortBy === 'price-desc') {
+        return (b.price || 0) - (a.price || 0);
+      }
+      if (sortBy === 'name') {
+        return a.name.localeCompare(b.name, 'pt-BR');
+      }
+      return 0; // Default curated order
+    });
+  }, [gifts, selectedCategory, searchQuery, sortBy]);
 
   return (
     <section id="presentes" className="py-16 sm:py-24 bg-[#F4EFEB] border-t border-[#EADBCE]">
@@ -58,19 +80,43 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           </p>
         </div>
 
-        {/* Filter Bar & Search */}
-        <div className="space-y-4 mb-10">
+        {/* Filter Bar, Search & Sort */}
+        <div className="space-y-4 mb-10 max-w-4xl mx-auto">
           
-          {/* Interactive Search Bar */}
-          <div className="relative max-w-md mx-auto">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="O que você está procurando? (Ex: geladeira, sofá, taças...)"
-              className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 text-sm text-[#2D2A26] placeholder-[#8E867E] outline-none transition-all shadow-2xs"
-            />
+          {/* Interactive Search Bar + Sort Selector */}
+          <div className="flex flex-col sm:flex-row items-center gap-3">
+            <div className="relative flex-1 w-full">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar presente (ex: geladeira, sofá, taças...)"
+                className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 text-sm text-[#2D2A26] placeholder-[#8E867E] outline-none transition-all shadow-2xs"
+              />
+            </div>
+
+            {/* Sort Selector */}
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-between sm:justify-start">
+              <span className="text-xs font-medium text-[#7D756C] flex items-center gap-1 sm:hidden">
+                <ArrowUpDown className="w-3.5 h-3.5 text-[#C86D51]" />
+                Ordenar por:
+              </span>
+              <div className="relative flex-1 sm:flex-initial">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as SortOption)}
+                  aria-label="Ordenar presentes por"
+                  className="w-full sm:w-auto h-11 pl-9 pr-8 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none cursor-pointer shadow-2xs"
+                >
+                  <option value="default">Destaques da Alyne ✨</option>
+                  <option value="price-asc">Menor Valor (R$)</option>
+                  <option value="price-desc">Maior Valor (R$)</option>
+                  <option value="name">Nome (A - Z)</option>
+                </select>
+                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#C86D51] pointer-events-none" />
+              </div>
+            </div>
           </div>
 
           {/* Interactive Segmented Category Filter Buttons */}
@@ -92,6 +138,24 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 </button>
               );
             })}
+          </div>
+
+          {/* Quick info: count and active sort indicator */}
+          <div className="flex items-center justify-between text-xs text-[#7D756C] px-1 pt-0.5">
+            <span>
+              {filteredGifts.length === 1
+                ? '1 presente encontrado'
+                : `${filteredGifts.length} presentes encontrados`}
+            </span>
+            {sortBy !== 'default' && (
+              <button
+                type="button"
+                onClick={() => setSortBy('default')}
+                className="text-[#C86D51] hover:underline cursor-pointer font-medium"
+              >
+                Voltar à ordem padrão
+              </button>
+            )}
           </div>
 
         </div>

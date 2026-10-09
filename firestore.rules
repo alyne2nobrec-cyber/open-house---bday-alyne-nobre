@@ -1,0 +1,93 @@
+// Publicar as regras com: firebase deploy --only firestore:rules
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == '<ADMIN_EMAIL>';
+    }
+
+    function publicRead() {
+      return resource == null || true;
+    }
+
+    function isValidGuestCreate() {
+      return request.resource.data.name is string
+        && request.resource.data.name.size() >= 1
+        && request.resource.data.name.size() <= 80
+        && request.resource.data.whatsapp is string
+        && request.resource.data.whatsapp.size() >= 8
+        && request.resource.data.whatsapp.size() <= 25
+        && request.resource.data.attendees is int
+        && request.resource.data.attendees >= 0
+        && request.resource.data.attendees <= 10
+        && request.resource.data.companions is list
+        && request.resource.data.companions.size() <= 9
+        && request.resource.data.status in ['confirmed', 'declined']
+        && (!('notes' in request.resource.data) || request.resource.data.notes is string && request.resource.data.notes.size() <= 500);
+    }
+
+    function isValidReservationCreate() {
+      return request.resource.data.guestName is string
+        && request.resource.data.guestName.size() >= 1
+        && request.resource.data.guestName.size() <= 80
+        && request.resource.data.guestWhatsapp is string
+        && request.resource.data.guestWhatsapp.size() >= 8
+        && request.resource.data.guestWhatsapp.size() <= 25
+        && request.resource.data.quantity is int
+        && request.resource.data.quantity >= 1
+        && request.resource.data.quantity <= 50
+        && (!('message' in request.resource.data) || request.resource.data.message is string && request.resource.data.message.size() <= 500)
+        && request.resource.data.giftId is string;
+    }
+
+    function isGiftUpdateAllowed() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'availableQuantity',
+        'reservedQuantity',
+        'status',
+        'updatedAt'
+      ])
+      && request.resource.data.availableQuantity >= 0
+      && request.resource.data.availableQuantity <= resource.data.availableQuantity
+      && request.resource.data.availableQuantity != resource.data.availableQuantity
+        || request.resource.data.availableQuantity == resource.data.availableQuantity
+      && request.resource.data.reservedQuantity == resource.data.reservedQuantity
+      && request.resource.data.status == resource.data.status
+      && request.resource.data.updatedAt == resource.data.updatedAt;
+    }
+
+    match /eventSettings/{doc} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /gifts/{id} {
+      allow read: if true;
+      allow create: if isAdmin();
+      allow update: if isAdmin() || isGiftUpdateAllowed();
+      allow delete: if isAdmin();
+    }
+
+    match /giftReservations/{id} {
+      allow create: if isValidReservationCreate();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /guests/{id} {
+      allow create: if isValidGuestCreate();
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /eventStats/{doc} {
+      allow read: if true;
+      allow update: if request.resource.data.confirmedPeople is int
+        && request.resource.data.confirmedPeople >= resource.data.confirmedPeople
+        && request.resource.data.confirmedPeople <= resource.data.confirmedPeople + 10
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmedPeople']);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
