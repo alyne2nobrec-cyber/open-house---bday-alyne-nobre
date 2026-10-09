@@ -43,6 +43,14 @@ export default function App() {
       setIsAdminLoggedIn(true);
     }
 
+    if (!auth) {
+      if (!hasLocalAdmin) {
+        setIsAdminLoggedIn(false);
+        setIsAdminDashboardOpen(false);
+      }
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       const isLogged = Boolean(user && user.email?.trim().toLowerCase() === adminEmail);
       if (isLogged) {

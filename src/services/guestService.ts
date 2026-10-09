@@ -58,7 +58,7 @@ function notifyGuestListeners() {
 }
 
 export function subscribeGuests(callback: (guests: Guest[]) => void) {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     localGuestListeners.push(callback);
     callback(getLocalStoredGuests());
     return () => {
@@ -73,7 +73,6 @@ export function subscribeGuests(callback: (guests: Guest[]) => void) {
     q,
     async (snapshot) => {
       if (snapshot.empty) {
-        // Fallback to local or seed
         callback(getLocalStoredGuests());
         return;
       }

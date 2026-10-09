@@ -33,7 +33,7 @@ function saveLocalSettings(settings: EventSettings) {
 }
 
 export function subscribeSettings(callback: (settings: EventSettings) => void) {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     localSettingsListeners.push(callback);
     callback(getLocalSettings());
     return () => {
@@ -106,7 +106,7 @@ export async function updateEventSettings(newSettings: Partial<EventSettings>): 
     ...newSettings,
   });
 
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     return;
   }
 
