@@ -142,7 +142,7 @@ const isAdminUser = () => {
 };
 
 export function subscribeGifts(callback: (gifts: Gift[]) => void) {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     localGiftListeners.push(callback);
     callback(getLocalMergedGifts());
     return () => {

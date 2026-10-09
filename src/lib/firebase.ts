@@ -41,6 +41,6 @@ if (isFirebaseConfigured) {
 }
 
 export const app = appInstance;
-export const db = app ? getFirestore(app) : null as any;
-export const auth = app ? getAuth(app) : null as any;
-export const storage = app ? getStorage(app) : null as any;
+export const db = app ? getFirestore(app) : null;
+export const auth = app ? getAuth(app) : null;
+export const storage = app ? getStorage(app) : null;
