@@ -3,18 +3,44 @@ import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { getStorage } from 'firebase/storage';
 
-export const firebaseConfig = {
-  apiKey: "AIzaSyDZa0MSjqjotOZHNQIdbZrIIbxrXgvLACc",
-  authDomain: "cha-casa-nova-2f3f3.firebaseapp.com",
-  projectId: "cha-casa-nova-2f3f3",
-  storageBucket: "cha-casa-nova-2f3f3.firebasestorage.app",
-  messagingSenderId: "1050577282920",
-  appId: "1:1050577282920:web:e1d3fe61c38e88996f58dd",
-  measurementId: "G-S10LLW1PTY"
+const requiredEnvKeys = [
+  'VITE_FIREBASE_API_KEY',
+  'VITE_FIREBASE_AUTH_DOMAIN',
+  'VITE_FIREBASE_PROJECT_ID',
+  'VITE_FIREBASE_STORAGE_BUCKET',
+  'VITE_FIREBASE_MESSAGING_SENDER_ID',
+  'VITE_FIREBASE_APP_ID',
+] as const;
+
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase only once
-export const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-export const db = getFirestore(app);
-export const auth = getAuth(app);
-export const storage = getStorage(app);
+export const isFirebaseConfigured = requiredEnvKeys.every(
+  (key) => Boolean(import.meta.env[key])
+);
+
+let appInstance: ReturnType<typeof initializeApp> | null = null;
+
+if (isFirebaseConfigured) {
+  try {
+    appInstance = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  } catch (error) {
+    console.warn('Firebase initialization warning:', error);
+    appInstance = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig, 'fallback-app');
+  }
+} else {
+  console.warn(
+    'Firebase não configurado. Crie um arquivo .env com VITE_FIREBASE_* e reinicie o app.'
+  );
+}
+
+export const app = appInstance;
+export const db = app ? getFirestore(app) : null as any;
+export const auth = app ? getAuth(app) : null as any;
+export const storage = app ? getStorage(app) : null as any;

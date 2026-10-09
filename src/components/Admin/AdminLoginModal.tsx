@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Lock, Mail, KeyRound, AlertCircle, ShieldCheck } from 'lucide-react';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { auth, isFirebaseConfigured } from '../../lib/firebase';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -9,12 +9,25 @@ interface AdminLoginModalProps {
   onLoginSuccess: () => void;
 }
 
+const getAuthErrorMessage = (code?: string) => {
+  switch (code) {
+    case 'auth/invalid-credential':
+      return 'Credenciais inválidas. Verifique o e-mail e a senha.';
+    case 'auth/too-many-requests':
+      return 'Muitas tentativas de acesso. Tente novamente em alguns minutos.';
+    case 'auth/network-request-failed':
+      return 'Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.';
+    default:
+      return 'Não foi possível entrar no painel. Tente novamente.';
+  }
+};
+
 export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   isOpen,
   onClose,
   onLoginSuccess,
 }) => {
-  const [email, setEmail] = useState('alyne2.nobre.c@gmail.com');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,43 +39,22 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setError('');
     setLoading(true);
 
+    if (!isFirebaseConfigured || !auth) {
+      setError('A autenticação do painel não está configurada. Defina as variáveis VITE_FIREBASE_* e o e-mail do admin antes de publicar.');
+      setLoading(false);
+      return;
+    }
+
     try {
-      // 1. Try Firebase Auth sign in
-      try {
-        await signInWithEmailAndPassword(auth, email.trim(), password);
-        onLoginSuccess();
-        onClose();
-        return;
-      } catch (authErr: any) {
-        // If user not found, attempt to register automatically or use fallback
-        if (authErr.code === 'auth/user-not-found' || authErr.code === 'auth/invalid-credential') {
-          try {
-            await createUserWithEmailAndPassword(auth, email.trim(), password);
-            onLoginSuccess();
-            onClose();
-            return;
-          } catch (createErr) {
-            // continue to password fallback
-          }
-        }
-      }
-
-      // 2. Master access fallback for host:
-      // Enables immediate access for Alyne if Firebase Auth user creation is restricted
-      const masterPasswords = ['alyne2026', 'openhouse2026', 'casanova2026', 'nobremente'];
-      if (
-        (email.trim().toLowerCase() === 'alyne2.nobre.c@gmail.com' || email.trim().toLowerCase() === 'admin') &&
-        (masterPasswords.includes(password.trim()) || password.trim().length >= 6)
-      ) {
-        localStorage.setItem('alyne_admin_logged_in', 'true');
-        onLoginSuccess();
-        onClose();
-        return;
-      }
-
-      throw new Error('E-mail ou senha incorretos. Dica: use a senha mestre ou cadastre o usuário.');
-    } catch (err: any) {
-      setError(err.message || 'Erro ao realizar login.');
+      await signInWithEmailAndPassword(auth, email.trim(), password);
+      onLoginSuccess();
+      onClose();
+    } catch (err: unknown) {
+      const code =
+        typeof err === 'object' && err !== null && 'code' in err
+          ? String((err as { code?: string }).code)
+          : undefined;
+      setError(getAuthErrorMessage(code));
     } finally {
       setLoading(false);
     }
@@ -71,9 +63,9 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
       <div className="relative w-full max-w-md bg-[#FAF8F5] border border-[#EADBCE] rounded-3xl p-6 sm:p-8 shadow-2xl">
-        
-        {/* Close Button */}
         <button
+          type="button"
+          aria-label="Fechar"
           onClick={onClose}
           className="absolute top-5 right-5 h-9 w-9 rounded-full bg-[#F4EFEB] text-[#68625B] hover:text-[#2D2A26] flex items-center justify-center transition-colors cursor-pointer"
         >
@@ -104,6 +96,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="seu@email.com"
                 className="w-full h-11 pl-10 pr-4 rounded-xl border border-[#EADBCE] bg-white text-sm text-[#2D2A26] focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all"
               />
             </div>
@@ -117,16 +110,12 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               <KeyRound className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
               <input
                 type="password"
-                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Sua senha ou senha mestre"
+                placeholder="Digite sua senha"
                 className="w-full h-11 pl-10 pr-4 rounded-xl border border-[#EADBCE] bg-white text-sm text-[#2D2A26] focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all"
               />
             </div>
-            <p className="text-[11px] text-[#A59E95] mt-1">
-              Dica: pode usar <span className="font-mono text-[#68625B]">alyne2026</span> ou sua senha Firebase.
-            </p>
           </div>
 
           {error && (
@@ -145,6 +134,10 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           </button>
         </form>
 
+        <div className="mt-5 pt-4 border-t border-[#EADBCE] text-center text-xs text-[#68625B] flex items-center justify-center gap-2">
+          <Lock className="w-3.5 h-3.5 text-[#C86D51]" />
+          <span>Acesso protegido com autenticação do Firebase.</span>
+        </div>
       </div>
     </div>
   );

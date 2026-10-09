@@ -3,6 +3,7 @@ export interface ScrapedProduct {
   description: string;
   price: number;
   imageUrl: string;
+  category?: string;
   storeName: string;
   purchaseUrl: string;
 }
@@ -41,7 +42,6 @@ export function getStoreNameFromUrl(urlString: string): string {
 
 /**
  * Tries to parse human title from the URL path slugs
- * e.g. /geladeira-frost-free-brastemp-brm44hk/p -> "Geladeira Frost Free Brastemp Brm44hk"
  */
 export function extractTitleFromUrl(urlString: string): string {
   try {
@@ -49,22 +49,20 @@ export function extractTitleFromUrl(urlString: string): string {
     const segments = url.pathname.split('/').filter(Boolean);
     if (segments.length === 0) return '';
 
-    // Take the longest or most descriptive slug segment
     const slug = segments.reduce((longest, curr) => {
-      // filter out /p, /dp, /item, IDs
       if (curr.length < 3 || /^\d+$/.test(curr)) return longest;
       return curr.length > longest.length ? curr : longest;
     }, '');
 
     if (!slug) return '';
 
-    return slug
+    return decodeURIComponent(slug)
       .replace(/-|\_/g, ' ')
       .replace(/\.html?$/i, '')
       .split(' ')
-      .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
       .join(' ')
-      .slice(0, 70);
+      .slice(0, 80);
   } catch {
     return '';
   }
@@ -72,11 +70,12 @@ export function extractTitleFromUrl(urlString: string): string {
 
 /**
  * Scrapes metadata from a given product URL.
- * Uses resilient proxies and fallbacks to ensure it never throws a blocking error.
+ * First calls the server endpoint /api/scrape, and falls back to a resilient public resolver.
  */
 export async function scrapeProductFromUrl(url: string): Promise<ScrapedProduct> {
-  const storeName = getStoreNameFromUrl(url);
-  const guessedTitle = extractTitleFromUrl(url);
+  const cleanUrl = url.trim();
+  const storeName = getStoreNameFromUrl(cleanUrl);
+  const guessedTitle = extractTitleFromUrl(cleanUrl);
 
   const fallback: ScrapedProduct = {
     name: guessedTitle ? `${guessedTitle}` : `Item especial da ${storeName}`,
@@ -84,15 +83,42 @@ export async function scrapeProductFromUrl(url: string): Promise<ScrapedProduct>
     price: 150,
     imageUrl: '',
     storeName,
-    purchaseUrl: url,
+    purchaseUrl: cleanUrl,
   };
 
+  // 1. Try server-side endpoint first (no CORS, direct HTML parsing)
   try {
-    // Attempt through public CORS-friendly OpenGraph resolver
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 7000);
+    const res = await fetch(`/api/scrape?url=${encodeURIComponent(cleanUrl)}`, {
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
 
-    const proxyUrl = `https://api.microlink.io?url=${encodeURIComponent(url)}`;
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.name && !data.name.includes('Item especial')) {
+        return {
+          name: data.name,
+          description: data.description || fallback.description,
+          price: data.price > 0 ? data.price : fallback.price,
+          imageUrl: data.imageUrl || '',
+          category: data.category,
+          storeName: data.storeName || storeName,
+          purchaseUrl: cleanUrl,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Server scrape not reached or failed, trying public resolver:', err);
+  }
+
+  // 2. Client-side fallback via public CORS-friendly resolver
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 9000);
+
+    const proxyUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}`;
     const res = await fetch(proxyUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
@@ -100,22 +126,64 @@ export async function scrapeProductFromUrl(url: string): Promise<ScrapedProduct>
       const json = await res.json();
       if (json.status === 'success' && json.data) {
         const d = json.data;
-        const ogTitle = d.title || fallback.name;
-        const ogDesc = d.description || fallback.description;
-        const ogImage = d.image?.url || '';
+        let title = d.title || '';
+        const desc = d.description || '';
+        let image = d.image?.url || '';
+
+        // If title is generic Amazon "Galeria de produtos"
+        if (!title || title.toLowerCase().includes('galeria') || title.toLowerCase().includes('amazon')) {
+          const matchDesc =
+            desc.match(/Compre online\s+([^-]+-[^.]+)/i) ||
+            desc.match(/Compre online\s+(.*?)\s+na Amazon/i);
+          if (matchDesc) {
+            title = matchDesc[1].trim();
+          } else if (d.url) {
+            const canonicalMatch = decodeURIComponent(d.url).match(/\/([^\/]+)\/dp\//i);
+            if (canonicalMatch) {
+              title = canonicalMatch[1].replace(/[-_]/g, ' ').trim();
+            }
+          }
+        }
+
+        // Clean up title
+        title = title.replace(/\s*:\s*Amazon\.com\.br.*$/i, '').trim();
+
+        // Filter out 1x1 tracking pixel gifs from Amazon
+        if (
+          image.includes('uedata=') ||
+          image.includes('fls-na') ||
+          (d.image?.size && d.image.size < 200) ||
+          (d.image?.height && d.image.height <= 2)
+        ) {
+          image = '';
+        }
+
+        // Infer category
+        let category = 'casa';
+        const text = `${title} ${desc}`.toLowerCase();
+        if (text.match(/fog[aã]o|geladeira|panela|cafeteira|micro-ondas|air fryer|prato|copo|talher/i)) {
+          category = 'cozinha';
+        } else if (text.match(/sof[aá]|tv|quadro|tapete|almofada/i)) {
+          category = 'sala';
+        } else if (text.match(/cama|len[çc]ol|travesseiro|edredom/i)) {
+          category = 'quarto';
+        } else if (text.match(/toalha|chuveiro|saboneteira/i)) {
+          category = 'banheiro';
+        }
 
         return {
-          name: ogTitle.slice(0, 90),
-          description: ogDesc.slice(0, 180),
+          name: (title || fallback.name).slice(0, 95),
+          description: (desc || fallback.description).slice(0, 190),
           price: fallback.price,
-          imageUrl: ogImage,
+          imageUrl: image,
+          category,
           storeName: d.publisher || storeName,
-          purchaseUrl: url,
+          purchaseUrl: cleanUrl,
         };
       }
     }
   } catch (err) {
-    console.log('Online scraping service timeout/block (using smart fallback):', err);
+    console.log('Online scraping service timeout/block:', err);
   }
 
   return fallback;

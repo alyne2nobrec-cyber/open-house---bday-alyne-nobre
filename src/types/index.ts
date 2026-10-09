@@ -18,6 +18,8 @@ export interface Gift {
   purchaseUrl?: string;
   pixKey?: string;
   pixQrCodeUrl?: string;
+  pixCopiaECola?: string;
+  pixBankLink?: string;
   status: GiftStatus;
   createdAt?: any;
   updatedAt?: any;
@@ -34,17 +36,20 @@ export interface GiftReservation {
   createdAt?: any;
 }
 
-export type GuestStatus = 'confirmed' | 'declined';
+export type GuestStatus = 'confirmed' | 'declined' | 'pending';
 
 export interface Guest {
   id: string;
   name: string;
-  whatsapp: string;
+  whatsapp?: string;
+  maxCompanions: number;
   attendees: number;
   companions: string[];
   status: GuestStatus;
   notes?: string;
+  confirmedAt?: string;
   createdAt?: any;
+  updatedAt?: any;
 }
 
 export interface EventSettings {
@@ -65,6 +70,10 @@ export interface EventSettings {
   mainImageUrl: string;
   pixKey: string;
   pixKeyType: string;
+  pixReceiverName?: string;
+  pixBankName?: string;
+  pixBankLink?: string;
+  pixCopiaECola?: string;
   pixQrCodeUrl?: string;
   galleryImages: string[];
 }
