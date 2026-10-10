@@ -26,6 +26,7 @@ import {
   UserCheck,
   Clock,
   FileSpreadsheet,
+  ArrowRight,
 } from 'lucide-react';
 import { Gift, GiftCategory, GiftReservation, Guest, GuestStatus, EventSettings, GiftType, GiftStatus } from '../../types';
 import {
@@ -34,6 +35,8 @@ import {
   deleteGift,
   duplicateGift,
   seedGiftsToFirestore,
+  updateReservationPayment,
+  deleteReservation,
 } from '../../services/giftService';
 import {
   addGuest,
@@ -45,6 +48,9 @@ import {
 import { updateEventSettings } from '../../services/settingsService';
 import { scrapeProductFromUrl } from '../../utils/scraper';
 import { parseGuestsCsv, downloadSampleGuestsCsv, ParsedCsvGuest } from '../../utils/csvGuestParser';
+import { downloadCsvFile } from '../../utils/csvExport';
+import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
+import { uploadImageFile } from '../../utils/imageUpload';
 
 interface AdminDashboardProps {
   gifts: Gift[];
@@ -108,6 +114,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Gift search and category filter
   const [giftSearch, setGiftSearch] = useState('');
   const [giftFilterCategory, setGiftFilterCategory] = useState<string>('all');
+  const [seedingGifts, setSeedingGifts] = useState(false);
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+
+  // Reservation search and payment filter in "Quem me presenteou"
+  const [resSearch, setResSearch] = useState('');
+  const [resPaymentFilter, setResPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
+  const [resViewMode, setResViewMode] = useState<'list' | 'byGift'>('list');
 
   // 1. Calculations for Overview
   const confirmedGuests = guests.filter((g) => g.status === 'confirmed');
@@ -119,27 +132,127 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const availableGiftsCount = totalGiftsCount - soldOutGiftsCount;
   const totalReservedQuotas = reservations.reduce((acc, r) => acc + (r.quantity || 1), 0);
 
-  // Export CSV
-  const handleExportGuestsCsv = () => {
-    const headers = ['Nome', 'WhatsApp', 'Limite Acomp', 'Pessoas Confirmadas', 'Status', 'Acompanhantes', 'Observação'];
-    const rows = guests.map((g) => [
-      `"${g.name.replace(/"/g, '""')}"`,
-      `"${g.whatsapp || ''}"`,
-      g.maxCompanions,
-      g.attendees,
-      g.status === 'confirmed' ? 'Confirmado' : g.status === 'pending' ? 'Pendente' : 'Ausente',
-      `"${g.companions?.join(', ') || ''}"`,
-      `"${(g.notes || '').replace(/"/g, '""')}"`,
-    ]);
+  // Financial calculations
+  const getReservationAmount = (r: GiftReservation): number => {
+    if (typeof r.totalAmount === 'number' && r.totalAmount > 0) return r.totalAmount;
+    if (typeof r.unitPrice === 'number' && r.unitPrice > 0) return r.unitPrice * (r.quantity || 1);
+    const g = gifts.find((item) => item.id === r.giftId);
+    return (g?.price || 0) * (r.quantity || 1);
+  };
 
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `convidados_openhouse_alyne_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const totalReservedAmount = reservations.reduce((acc, r) => acc + getReservationAmount(r), 0);
+  const totalPaidAmount = reservations.filter((r) => r.paid).reduce((acc, r) => acc + getReservationAmount(r), 0);
+  const totalPendingAmount = Math.max(0, totalReservedAmount - totalPaidAmount);
+
+  // Safe Export Guests CSV
+  const handleExportGuestsCsv = () => {
+    const headers = [
+      'Nome',
+      'WhatsApp',
+      'Limite Acomp',
+      'Pessoas Confirmadas',
+      'Status',
+      'Acompanhantes',
+      'Presente(s) Reservado(s)',
+      'Observação',
+    ];
+
+    const rows = guests.map((g) => {
+      const gRes = reservations.filter(
+        (r) =>
+          r.guestName.toLowerCase().trim() === g.name.toLowerCase().trim() ||
+          (r.guestWhatsapp && g.whatsapp && r.guestWhatsapp.replace(/\D/g, '') === g.whatsapp.replace(/\D/g, ''))
+      );
+      const giftsSummary = gRes
+        .map((r) => `${r.giftName} (${r.quantity}x)${r.paid ? ' [PAGO]' : ' [PENDENTE]'}`)
+        .join('; ');
+
+      return [
+        g.name,
+        g.whatsapp || '',
+        g.maxCompanions,
+        g.attendees,
+        g.status === 'confirmed' ? 'Confirmado' : g.status === 'pending' ? 'Pendente' : 'Ausente',
+        g.companions?.join(', ') || '',
+        giftsSummary || 'Nenhum',
+        g.notes || '',
+      ];
+    });
+
+    downloadCsvFile(`convidados_openhouse_alyne_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+  };
+
+  // Safe Export Reservations CSV
+  const handleExportReservationsCsv = () => {
+    const headers = [
+      'Convidado',
+      'WhatsApp',
+      'Presente',
+      'Cotas',
+      'Valor Unitário (R$)',
+      'Total (R$)',
+      'Status Pagamento',
+      'Data Reserva',
+      'Recado',
+    ];
+
+    const rows = reservations.map((r) => {
+      const g = gifts.find((item) => item.id === r.giftId);
+      const unit = typeof r.unitPrice === 'number' && r.unitPrice > 0 ? r.unitPrice : g?.price || 0;
+      const total = getReservationAmount(r);
+
+      return [
+        r.guestName,
+        r.guestWhatsapp,
+        r.giftName,
+        r.quantity,
+        unit.toFixed(2),
+        total.toFixed(2),
+        r.paid ? 'Pago' : 'Pendente',
+        r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '',
+        r.message || '',
+      ];
+    });
+
+    downloadCsvFile(`reservas_presentes_alyne_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+  };
+
+  // Toggle paid status
+  const handleToggleReservationPaid = async (r: GiftReservation) => {
+    try {
+      await updateReservationPayment(r.id, !r.paid);
+      setActionFeedback(`Status de ${r.guestName} alterado para ${!r.paid ? 'Pago' : 'Pendente'}.`);
+      window.setTimeout(() => setActionFeedback(null), 3000);
+    } catch (err: any) {
+      alert('Erro ao atualizar status de pagamento: ' + (err?.message || 'Tente novamente'));
+    }
+  };
+
+  // Delete reservation
+  const handleDeleteReservationClick = async (r: GiftReservation) => {
+    if (confirm(`Remover reserva de ${r.guestName} (${r.giftName})?`)) {
+      try {
+        await deleteReservation(r.id);
+        setActionFeedback('Reserva removida.');
+        window.setTimeout(() => setActionFeedback(null), 3000);
+      } catch (err: any) {
+        alert('Erro ao excluir reserva: ' + (err?.message || 'Tente novamente'));
+      }
+    }
+  };
+
+  // Seed default gifts to Firestore
+  const handleSeedDefaultGifts = async () => {
+    setSeedingGifts(true);
+    try {
+      await seedGiftsToFirestore();
+      setActionFeedback('Presentes iniciais carregados no banco de dados com sucesso!');
+      window.setTimeout(() => setActionFeedback(null), 4000);
+    } catch (err: any) {
+      alert('Erro ao semear presentes: ' + (err?.message || 'Verifique se está logada com o e-mail admin.'));
+    } finally {
+      setSeedingGifts(false);
+    }
   };
 
   const handleOpenAddGuest = () => {
@@ -300,14 +413,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     setTimeout(() => setSettingsSaved(false), 3000);
   };
 
-  const handlePixQrCodeUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePixQrCodeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSettingsForm((prev) => ({ ...prev, pixQrCodeUrl: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
+      try {
+        const url = await uploadImageFile(file, 'qrcodes');
+        setSettingsForm((prev) => ({ ...prev, pixQrCodeUrl: url }));
+      } catch (err) {
+        console.warn('Error uploading QR code:', err);
+      }
     }
   };
 
@@ -520,7 +634,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* Quick Actions & Recent Activity Bento */}
+            {/* Financial Overview Banner */}
+            <div className="bg-gradient-to-r from-white to-emerald-50/60 p-5 rounded-3xl border border-[#EADBCE] shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold shrink-0">
+                  <DollarSign className="w-6 h-6 text-emerald-700" />
+                </div>
+                <div>
+                  <span className="text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider block">
+                    Arrecadação de Presentes & Cotas Pix
+                  </span>
+                  <div className="font-serif text-2xl font-bold text-emerald-800 tabular-nums">
+                    R$ {totalReservedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <span className="text-xs text-[#68625B]">
+                    <strong className="text-emerald-700">R$ {totalPaidAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> confirmados / pagos • <strong className="text-amber-700">R$ {totalPendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> pendentes
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setActiveTab('whoGaveWhat')}
+                className="h-10 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer shrink-0"
+              >
+                <span>Ver Quem Presenteou</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               
               {/* Quick Actions */}
@@ -638,8 +778,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <Plus className="w-4 h-4" />
                   <span>Novo Presente</span>
                 </button>
+
+                <button
+                  onClick={handleSeedDefaultGifts}
+                  disabled={seedingGifts}
+                  className="h-10 px-3.5 rounded-xl border border-[#C86D51] bg-[#FAF8F5] hover:bg-[#F3E7DE] text-[#C86D51] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>{seedingGifts ? 'Semeando...' : 'Carregar Padrões'}</span>
+                </button>
               </div>
             </div>
+
+            {gifts.length === 0 && (
+              <div className="p-6 bg-amber-50 rounded-2xl border border-amber-200 text-center space-y-3">
+                <Sparkles className="w-8 h-8 text-amber-600 mx-auto" />
+                <h3 className="font-serif text-lg font-medium text-amber-900">
+                  Nenhum presente cadastrado no banco de dados
+                </h3>
+                <p className="text-xs text-amber-700 max-w-md mx-auto">
+                  A lista de presentes está vazia no Firestore. Clique no botão abaixo para semear a lista oficial com IDs reais para que os convidados possam reservar sem erros.
+                </p>
+                <button
+                  onClick={handleSeedDefaultGifts}
+                  disabled={seedingGifts}
+                  className="h-11 px-6 rounded-xl bg-[#C86D51] hover:bg-[#A95339] text-white text-xs font-semibold uppercase tracking-wide cursor-pointer transition-colors shadow-xs"
+                >
+                  {seedingGifts ? 'Carregando presentes...' : 'Carregar Lista Padrão de Presentes no Firestore'}
+                </button>
+              </div>
+            )}
 
             {/* Filter and Search Bar */}
             <div className="flex flex-col sm:flex-row items-center gap-3">
@@ -805,17 +973,138 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* ===================== TAB 3: QUEM ME PRESENTEOU ===================== */}
+        {/* ===================== TAB 3: QUEM ME PRESENTEOU (ARRECADAÇÃO PIX) ===================== */}
         {activeTab === 'whoGaveWhat' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="font-serif text-2xl font-medium text-[#2D2A26]">
-                Quem está me presenteando?
-              </h2>
-              <p className="text-xs text-[#68625B]">
-                Lista detalhada de quem reservou cotas ou presentes físicos para você agradecer depois!
-              </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-2xl font-medium text-[#2D2A26]">
+                  Quem está me presenteando? (Arrecadação Pix)
+                </h2>
+                <p className="text-xs text-[#68625B]">
+                  Controle financeiro de presentes e cotas reservadas com marcação de pagamento e contatos.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportReservationsCsv}
+                  className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Download className="w-4 h-4 text-[#C86D51]" />
+                  <span>Exportar Relatório CSV</span>
+                </button>
+              </div>
             </div>
+
+            {/* Financial Summary Cards */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C] block mb-1">
+                  Total Reservado
+                </span>
+                <div className="font-serif text-xl sm:text-2xl font-bold text-[#2D2A26] tabular-nums">
+                  R$ {totalReservedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[11px] text-[#A59E95] mt-0.5 block">
+                  {totalReservedQuotas} cotas em {reservations.length} reservas
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-emerald-200 bg-emerald-50/30">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">
+                  Confirmado / Pago 🎉
+                </span>
+                <div className="font-serif text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">
+                  R$ {totalPaidAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[11px] text-emerald-800 mt-0.5 block">
+                  {reservations.filter((r) => r.paid).length} pagamentos confirmados
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-amber-200 bg-amber-50/30">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-800 block mb-1">
+                  Pendente de Pix ⏳
+                </span>
+                <div className="font-serif text-xl sm:text-2xl font-bold text-amber-700 tabular-nums">
+                  R$ {totalPendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+                <span className="text-[11px] text-amber-800 mt-0.5 block">
+                  {reservations.filter((r) => !r.paid).length} aguardando comprovante
+                </span>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C] block mb-1">
+                  Cotas Reservadas
+                </span>
+                <div className="font-serif text-xl sm:text-2xl font-bold text-[#C86D51] tabular-nums">
+                  {totalReservedQuotas}
+                </div>
+                <span className="text-[11px] text-[#7D756C] mt-0.5 block">
+                  cotas escolhidas
+                </span>
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="flex flex-col sm:flex-row items-center gap-3">
+              <div className="relative flex-1 w-full">
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
+                <input
+                  type="text"
+                  value={resSearch}
+                  onChange={(e) => setResSearch(e.target.value)}
+                  placeholder="Buscar reserva por convidado, WhatsApp ou presente..."
+                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={resPaymentFilter}
+                  onChange={(e) => setResPaymentFilter(e.target.value as any)}
+                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none flex-1 sm:flex-none"
+                >
+                  <option value="all">Todos os Pagamentos ({reservations.length})</option>
+                  <option value="paid">Pagos / Confirmados ({reservations.filter((r) => r.paid).length})</option>
+                  <option value="pending">Pendentes ({reservations.filter((r) => !r.paid).length})</option>
+                </select>
+
+                <div className="flex items-center rounded-xl border border-[#EADBCE] bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setResViewMode('list')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      resViewMode === 'list'
+                        ? 'bg-[#C86D51] text-white shadow-2xs'
+                        : 'text-[#68625B] hover:text-[#2D2A26]'
+                    }`}
+                  >
+                    Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResViewMode('byGift')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                      resViewMode === 'byGift'
+                        ? 'bg-[#C86D51] text-white shadow-2xs'
+                        : 'text-[#68625B] hover:text-[#2D2A26]'
+                    }`}
+                  >
+                    Por Presente
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {actionFeedback && (
+              <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span>{actionFeedback}</span>
+              </div>
+            )}
 
             {reservations.length === 0 ? (
               <div className="text-center py-16 bg-white rounded-3xl border border-[#EADBCE] p-8">
@@ -824,97 +1113,266 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   Nenhum presente reservado ainda
                 </p>
                 <p className="text-xs text-[#7D756C] mt-1">
-                  Assim que os convidados escolherem um presente, o nome e contato aparecerão aqui.
+                  Assim que os convidados escolherem um presente, o nome, valor em R$ e comprovante aparecerão aqui.
                 </p>
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {reservations.map((res, idx) => (
-                  <div
-                    key={res.id || idx}
-                    className="bg-white p-5 rounded-2xl border border-[#EADBCE] shadow-2xs space-y-3"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="font-serif text-base font-semibold text-[#2D2A26]">
-                          {res.guestName}
-                        </h4>
-                        <span className="text-xs text-[#C86D51] font-medium">
-                          {res.guestWhatsapp}
-                        </span>
-                      </div>
-                      <span className="px-2 py-0.5 rounded-md bg-[#FAF8F5] border border-[#EADBCE] text-[11px] font-semibold text-[#2D2A26] tabular-nums">
-                        {res.quantity} {res.quantity > 1 ? 'cotas' : 'cota'}
-                      </span>
-                    </div>
+            ) : (() => {
+              const filteredRes = reservations.filter((r) => {
+                const q = resSearch.toLowerCase().trim();
+                const matchesQuery =
+                  !q ||
+                  r.guestName.toLowerCase().includes(q) ||
+                  r.giftName.toLowerCase().includes(q) ||
+                  (r.guestWhatsapp && r.guestWhatsapp.includes(q));
 
-                    {/* Associated Gift Card with photo and details */}
-                    {(() => {
-                      const associatedGift = gifts.find((g) => g.id === res.giftId);
-                      const displayName = res.giftName || associatedGift?.name || 'Presente Especial';
-                      const isSoldOut = associatedGift?.status === 'sold_out' || (associatedGift && associatedGift.availableQuantity <= 0);
+                const matchesStatus =
+                  resPaymentFilter === 'all' ||
+                  (resPaymentFilter === 'paid' && r.paid) ||
+                  (resPaymentFilter === 'pending' && !r.paid);
+
+                return matchesQuery && matchesStatus;
+              });
+
+              if (filteredRes.length === 0) {
+                return (
+                  <div className="text-center py-12 bg-white rounded-2xl border border-[#EADBCE] text-xs text-[#7D756C]">
+                    Nenhuma reserva encontrada com este filtro ou busca.
+                  </div>
+                );
+              }
+
+              if (resViewMode === 'byGift') {
+                const groupedMap = new Map<string, GiftReservation[]>();
+                filteredRes.forEach((r) => {
+                  const key = r.giftId || r.giftName;
+                  const currentList = groupedMap.get(key) || [];
+                  currentList.push(r);
+                  groupedMap.set(key, currentList);
+                });
+
+                return (
+                  <div className="space-y-4">
+                    {Array.from(groupedMap.entries()).map(([giftKey, resList]) => {
+                      const associatedGift = gifts.find((g) => g.id === giftKey || g.name === giftKey);
+                      const giftDisplayName = resList[0]?.giftName || associatedGift?.name || giftKey;
+                      const giftTotalValue = resList.reduce((acc, r) => acc + getReservationAmount(r), 0);
+                      const giftTotalQuotas = resList.reduce((acc, r) => acc + (r.quantity || 1), 0);
 
                       return (
-                        <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs flex items-center gap-3">
-                          {associatedGift?.imageUrl ? (
-                            <img
-                              src={associatedGift.imageUrl}
-                              alt={displayName}
-                              referrerPolicy="no-referrer"
-                              className="w-12 h-12 rounded-lg object-cover border border-[#EADBCE] shrink-0"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-lg bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center shrink-0">
-                              <GiftIcon className="w-5 h-5" />
-                            </div>
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 mb-0.5">
-                              <span className="text-[10px] text-[#A59E95] font-semibold uppercase tracking-wider">
-                                {associatedGift?.category || 'Presente'}
-                              </span>
-                              {isSoldOut && (
-                                <span className="text-[10px] px-1.5 py-0.2 rounded font-semibold bg-emerald-100 text-emerald-800">
-                                  Esgotado 🎉
-                                </span>
+                        <div key={giftKey} className="bg-white rounded-2xl border border-[#EADBCE] p-5 shadow-2xs space-y-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#F0E6DE]">
+                            <div className="flex items-center gap-3">
+                              {associatedGift?.imageUrl ? (
+                                <img
+                                  src={associatedGift.imageUrl}
+                                  alt={giftDisplayName}
+                                  className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE]"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center">
+                                  <GiftIcon className="w-5 h-5" />
+                                </div>
                               )}
+                              <div>
+                                <h3 className="font-serif text-base font-semibold text-[#2D2A26]">
+                                  {giftDisplayName}
+                                </h3>
+                                <span className="text-xs text-[#7D756C]">
+                                  {giftTotalQuotas} {giftTotalQuotas > 1 ? 'cotas reservadas' : 'cota reservada'} por {resList.length} amigo(s)
+                                </span>
+                              </div>
                             </div>
-                            <strong className="text-[#2D2A26] block truncate">
-                              {displayName}
-                            </strong>
-                            {associatedGift?.price ? (
-                              <span className="text-[11px] text-[#7D756C]">
-                                R$ {associatedGift.price.toLocaleString('pt-BR')} cada cota
+
+                            <div className="text-right">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A59E95] block">
+                                Total Arrecadado
                               </span>
-                            ) : null}
+                              <span className="font-serif text-lg font-bold text-emerald-700">
+                                R$ {giftTotalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {resList.map((r) => {
+                              const amount = getReservationAmount(r);
+                              const whatsappUrl = formatWhatsappUrl(
+                                r.guestWhatsapp,
+                                `Oi ${r.guestName}! Vi que você escolheu o presente "${r.giftName}" para o meu apê novo! Muito obrigada pelo carinho! ❤️`
+                              );
+
+                              return (
+                                <div key={r.id} className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] text-xs space-y-2">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <strong className="text-[#2D2A26] block">{r.guestName}</strong>
+                                      <span className="text-[11px] text-[#68625B] font-mono">
+                                        {formatPhoneDisplay(r.guestWhatsapp)}
+                                      </span>
+                                    </div>
+                                    <span
+                                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                        r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                      }`}
+                                    >
+                                      {r.paid ? 'Pago ✓' : 'Pendente ⏳'}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center justify-between text-[#68625B] pt-1 border-t border-[#EADBCE]/50">
+                                    <span>
+                                      {r.quantity} {r.quantity > 1 ? 'cotas' : 'cota'} = <strong>R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleReservationPaid(r)}
+                                        className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer"
+                                      >
+                                        {r.paid ? 'Marcar Pendente' : 'Confirmar Pago'}
+                                      </button>
+                                      {whatsappUrl && (
+                                        <a
+                                          href={whatsappUrl}
+                                          target="_blank"
+                                          rel="noreferrer noopener"
+                                          className="text-[#25D366] hover:underline"
+                                        >
+                                          WhatsApp →
+                                        </a>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       );
-                    })()}
-
-                    {res.message && (
-                      <p className="text-xs italic text-[#5A544D] bg-[#FDFBF7] p-2.5 rounded-lg border border-[#F0E6DE]">
-                        "{res.message}"
-                      </p>
-                    )}
-
-                    <div className="pt-1 flex items-center justify-between text-[11px] text-[#A59E95]">
-                      <span>{res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}</span>
-                      <a
-                        href={`https://wa.me/55${res.guestWhatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(
-                          `Oi ${res.guestName}! Vi seu presente (${res.giftName}) para o meu apê novo e passei para te dar um abraço bem quentinho e agradecer! ❤️`
-                        )}`}
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="text-[#C86D51] hover:underline font-medium"
-                      >
-                        Agradecer no WhatsApp →
-                      </a>
-                    </div>
+                    })}
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              }
+
+              // Individual List
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredRes.map((res) => {
+                    const associatedGift = gifts.find((g) => g.id === res.giftId);
+                    const displayName = res.giftName || associatedGift?.name || 'Presente Especial';
+                    const amount = getReservationAmount(res);
+                    const whatsappUrl = formatWhatsappUrl(
+                      res.guestWhatsapp,
+                      `Oi ${res.guestName}! Vi seu presente (${displayName}) para o meu apê novo e passei para te dar um abraço bem quentinho e agradecer! ❤️`
+                    );
+
+                    return (
+                      <div
+                        key={res.id}
+                        className="bg-white p-5 rounded-2xl border border-[#EADBCE] shadow-2xs space-y-3 flex flex-col justify-between"
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-start justify-between">
+                            <div>
+                              <h4 className="font-serif text-base font-semibold text-[#2D2A26]">
+                                {res.guestName}
+                              </h4>
+                              <span className="text-xs text-[#68625B] font-mono">
+                                {formatPhoneDisplay(res.guestWhatsapp)}
+                              </span>
+                            </div>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                                res.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {res.paid ? 'Pago ✓' : 'Pendente ⏳'}
+                            </span>
+                          </div>
+
+                          {/* Gift Card */}
+                          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs flex items-center gap-3">
+                            {associatedGift?.imageUrl ? (
+                              <img
+                                src={associatedGift.imageUrl}
+                                alt={displayName}
+                                className="w-12 h-12 rounded-lg object-cover border border-[#EADBCE] shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-lg bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center shrink-0">
+                                <GiftIcon className="w-5 h-5" />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[10px] text-[#A59E95] font-semibold uppercase tracking-wider block">
+                                {associatedGift?.category || 'Presente'}
+                              </span>
+                              <strong className="text-[#2D2A26] block truncate">
+                                {displayName}
+                              </strong>
+                              <div className="flex items-center justify-between text-[11px] text-[#7D756C] mt-0.5">
+                                <span>{res.quantity} {res.quantity > 1 ? 'cotas' : 'cota'}</span>
+                                <strong className="text-emerald-700 font-semibold">
+                                  R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </strong>
+                              </div>
+                            </div>
+                          </div>
+
+                          {res.message && (
+                            <p className="text-xs italic text-[#5A544D] bg-[#FDFBF7] p-2.5 rounded-lg border border-[#F0E6DE]">
+                              "{res.message}"
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Actions footer */}
+                        <div className="pt-2 border-t border-[#F0E6DE] space-y-2">
+                          <div className="flex items-center justify-between">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleReservationPaid(res)}
+                              className={`h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                                res.paid
+                                  ? 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                              }`}
+                            >
+                              {res.paid ? 'Marcar como Pendente' : '✓ Confirmar Pagamento Pix'}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReservationClick(res)}
+                              title="Remover reserva"
+                              className="h-8 w-8 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-[#A59E95]">
+                            <span>
+                              {res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}
+                            </span>
+                            {whatsappUrl && (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="text-[#25D366] hover:underline font-medium"
+                              >
+                                Agradecer no WhatsApp →
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -1045,6 +1503,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       <th className="p-4">Limite Convite</th>
                       <th className="p-4">Presença Confirmada</th>
                       <th className="p-4">Status</th>
+                      <th className="p-4">Presente(s)</th>
                       <th className="p-4">Acompanhantes / Recado</th>
                       <th className="p-4 text-right">Ações</th>
                     </tr>
@@ -1052,7 +1511,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <tbody className="divide-y divide-[#F0E6DE]">
                     {filteredGuests.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-xs text-[#7D756C]">
+                        <td colSpan={8} className="p-8 text-center text-xs text-[#7D756C]">
                           Nenhum convidado encontrado com este filtro.
                         </td>
                       </tr>
@@ -1098,6 +1557,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 ? 'Pendente ⏳'
                                 : 'Ausente 😭'}
                             </span>
+                          </td>
+                          <td className="p-4">
+                            {(() => {
+                              const cleanGPhone = guest.whatsapp?.replace(/\D/g, '') || '';
+                              const gRes = reservations.filter(
+                                (r) =>
+                                  r.guestName.toLowerCase().trim() === guest.name.toLowerCase().trim() ||
+                                  (cleanGPhone.length >= 8 && r.guestWhatsapp.replace(/\D/g, '').includes(cleanGPhone))
+                              );
+                              if (gRes.length === 0) {
+                                return <span className="text-[#A59E95] text-[11px]">—</span>;
+                              }
+                              return (
+                                <div className="space-y-1">
+                                  {gRes.map((r) => (
+                                    <div key={r.id} className="text-[11px] flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-semibold text-[#2D2A26]">{r.giftName}</span>
+                                      <span className="text-[#A59E95]">({r.quantity}x)</span>
+                                      <span
+                                        className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                                          r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                        }`}
+                                      >
+                                        {r.paid ? 'Pago ✓' : 'Pendente ⏳'}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </td>
                           <td className="p-4 text-[#68625B]">
                             {guest.companions && guest.companions.length > 0 && (
@@ -1847,15 +2336,21 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
   const [status, setStatus] = useState<GiftStatus>(gift?.status || 'available');
   const [saving, setSaving] = useState(false);
 
-  // Quick image file upload handler (converts to base64 data url)
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [imageUploading, setImageUploading] = useState(false);
+
+  // Safe image file upload handler (compressed and/or Storage)
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageUrl(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+      setImageUploading(true);
+      try {
+        const url = await uploadImageFile(file, 'gifts');
+        setImageUrl(url);
+      } catch (err) {
+        console.warn('Error uploading image:', err);
+      } finally {
+        setImageUploading(false);
+      }
     }
   };
 

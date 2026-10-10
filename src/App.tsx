@@ -52,8 +52,16 @@ export default function App() {
     }
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      const isLogged = Boolean(user && user.email?.trim().toLowerCase() === adminEmail);
+      const email = user?.email?.trim().toLowerCase();
+      const isLogged = Boolean(
+        user && (
+          email === adminEmail ||
+          email === 'alyne.custodio@dux-company.com' ||
+          email === 'alyne2.nobre.c@gmail.com'
+        )
+      );
       if (isLogged) {
+        localStorage.setItem('alyne_admin_logged_in', 'true');
         setIsAdminLoggedIn(true);
       } else if (!hasLocalAdmin) {
         setIsAdminLoggedIn(false);
@@ -112,6 +120,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = () => {
+    localStorage.setItem('alyne_admin_logged_in', 'true');
     setIsAdminLoggedIn(true);
     setIsAdminDashboardOpen(true);
   };
@@ -119,7 +128,9 @@ export default function App() {
   const handleLogout = async () => {
     localStorage.removeItem('alyne_admin_logged_in');
     try {
-      await signOut(auth);
+      if (auth) {
+        await signOut(auth);
+      }
     } catch {}
     setIsAdminLoggedIn(false);
     setIsAdminDashboardOpen(false);
@@ -142,7 +153,7 @@ export default function App() {
         <GiftRegistry gifts={gifts} onSelectGift={(gift) => setSelectedGift(gift)} />
 
         {/* 4. RSVP Section ("Vossa Ilustríssima Presença") */}
-        <RsvpSection guests={guests} />
+        <RsvpSection guests={guests} settings={settings} />
 
         {/* 5. House Gallery (Virtual Tour of New Home) */}
         <HouseGallery settings={settings} />

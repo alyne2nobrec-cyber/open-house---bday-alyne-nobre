@@ -32,6 +32,10 @@ export interface GiftReservation {
   guestName: string;
   guestWhatsapp: string;
   quantity: number;
+  unitPrice?: number;
+  totalAmount?: number;
+  paid?: boolean;
+  paidAt?: string;
   message?: string;
   createdAt?: any;
 }
@@ -52,9 +56,17 @@ export interface Guest {
   updatedAt?: any;
 }
 
+export interface EventStats {
+  confirmedPeople: number;
+  confirmedGuests?: number;
+  declinedGuests?: number;
+  updatedAt?: any;
+}
+
 export interface EventSettings {
   eventName: string;
   hostName: string;
+  hostWhatsapp?: string;
   instagramHandle: string;
   eventDate: string; // e.g. "2026-11-14"
   eventTime: string; // e.g. "17:00"

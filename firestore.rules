@@ -1,59 +1,71 @@
-// Publicar as regras com: firebase deploy --only firestore:rules
+// Regras do Firestore para o Open House & Bday Alyne Nobre
+// Publicar com: firebase deploy --only firestore:rules
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
-      return request.auth != null && request.auth.token.email == '<ADMIN_EMAIL>';
-    }
-
-    function publicRead() {
-      return resource == null || true;
+      return request.auth != null && (
+        request.auth.token.email in [
+          'alyne.custodio@dux-company.com',
+          'alyne2.nobre.c@gmail.com'
+        ]
+      );
     }
 
     function isValidGuestCreate() {
-      return request.resource.data.name is string
-        && request.resource.data.name.size() >= 1
-        && request.resource.data.name.size() <= 80
-        && request.resource.data.whatsapp is string
-        && request.resource.data.whatsapp.size() >= 8
-        && request.resource.data.whatsapp.size() <= 25
-        && request.resource.data.attendees is int
-        && request.resource.data.attendees >= 0
-        && request.resource.data.attendees <= 10
-        && request.resource.data.companions is list
-        && request.resource.data.companions.size() <= 9
-        && request.resource.data.status in ['confirmed', 'declined']
-        && (!('notes' in request.resource.data) || request.resource.data.notes is string && request.resource.data.notes.size() <= 500);
+      let data = request.resource.data;
+      return data.name is string
+        && data.name.size() >= 1
+        && data.name.size() <= 80
+        && data.whatsapp is string
+        && data.whatsapp.size() >= 8
+        && data.whatsapp.size() <= 25
+        && data.attendees is int
+        && data.attendees >= 0
+        && data.attendees <= 10
+        && data.companions is list
+        && data.companions.size() <= 9
+        && data.status in ['confirmed', 'declined']
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
     }
 
     function isValidReservationCreate() {
-      return request.resource.data.guestName is string
-        && request.resource.data.guestName.size() >= 1
-        && request.resource.data.guestName.size() <= 80
-        && request.resource.data.guestWhatsapp is string
-        && request.resource.data.guestWhatsapp.size() >= 8
-        && request.resource.data.guestWhatsapp.size() <= 25
-        && request.resource.data.quantity is int
-        && request.resource.data.quantity >= 1
-        && request.resource.data.quantity <= 50
-        && (!('message' in request.resource.data) || request.resource.data.message is string && request.resource.data.message.size() <= 500)
-        && request.resource.data.giftId is string;
+      let data = request.resource.data;
+      return data.guestName is string
+        && data.guestName.size() >= 1
+        && data.guestName.size() <= 80
+        && data.guestWhatsapp is string
+        && data.guestWhatsapp.size() >= 8
+        && data.guestWhatsapp.size() <= 25
+        && data.quantity is int
+        && data.quantity >= 1
+        && data.quantity <= 50
+        && data.giftId is string
+        && (!('giftName' in data) || (data.giftName is string && data.giftName.size() <= 120))
+        && (!('unitPrice' in data) || (data.unitPrice is number && data.unitPrice >= 0))
+        && (!('totalAmount' in data) || (data.totalAmount is number && data.totalAmount >= 0))
+        && (!('paid' in data) || (data.paid is bool))
+        && (!('message' in data) || (data.message is string && data.message.size() <= 500));
     }
 
     function isGiftUpdateAllowed() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      let incoming = request.resource.data;
+      let existing = resource.data;
+      let diff = incoming.diff(existing);
+      return diff.affectedKeys().hasOnly([
         'availableQuantity',
         'reservedQuantity',
         'status',
         'updatedAt'
       ])
-      && request.resource.data.availableQuantity >= 0
-      && request.resource.data.availableQuantity <= resource.data.availableQuantity
-      && request.resource.data.availableQuantity != resource.data.availableQuantity
-        || request.resource.data.availableQuantity == resource.data.availableQuantity
-      && request.resource.data.reservedQuantity == resource.data.reservedQuantity
-      && request.resource.data.status == resource.data.status
-      && request.resource.data.updatedAt == resource.data.updatedAt;
+      && incoming.availableQuantity is int
+      && incoming.reservedQuantity is int
+      && incoming.availableQuantity >= 0
+      && incoming.reservedQuantity >= existing.reservedQuantity
+      && incoming.availableQuantity <= existing.availableQuantity
+      && (incoming.availableQuantity + incoming.reservedQuantity == existing.availableQuantity + existing.reservedQuantity)
+      && incoming.status in ['available', 'sold_out']
+      && (incoming.availableQuantity == 0 ? incoming.status == 'sold_out' : incoming.status == 'available');
     }
 
     match /eventSettings/{doc} {
@@ -63,9 +75,8 @@ service cloud.firestore {
 
     match /gifts/{id} {
       allow read: if true;
-      allow create: if isAdmin();
+      allow create, delete: if isAdmin();
       allow update: if isAdmin() || isGiftUpdateAllowed();
-      allow delete: if isAdmin();
     }
 
     match /giftReservations/{id} {
@@ -80,10 +91,17 @@ service cloud.firestore {
 
     match /eventStats/{doc} {
       allow read: if true;
-      allow update: if request.resource.data.confirmedPeople is int
+      allow create: if (
+        request.resource.data.confirmedPeople is int
+        && request.resource.data.confirmedPeople >= 0
+      );
+      allow update: if isAdmin() || (
+        request.resource.data.confirmedPeople is int
         && request.resource.data.confirmedPeople >= resource.data.confirmedPeople
         && request.resource.data.confirmedPeople <= resource.data.confirmedPeople + 10
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmedPeople']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['confirmedPeople', 'updatedAt'])
+      );
+      allow delete: if isAdmin();
     }
 
     match /{document=**} {

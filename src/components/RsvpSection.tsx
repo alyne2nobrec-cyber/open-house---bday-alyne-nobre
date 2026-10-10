@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import confetti from 'canvas-confetti';
 import {
   Users,
@@ -6,100 +6,56 @@ import {
   XCircle,
   Heart,
   Sparkles,
-  Search,
   UserCheck,
   AlertCircle,
   MessageCircle,
   Clock,
   ArrowRight,
+  Send,
+  Plus,
+  Trash2,
 } from 'lucide-react';
-import { Guest, GuestStatus } from '../types';
-import { confirmGuestRsvp } from '../services/guestService';
+import { Guest, GuestStatus, EventSettings } from '../types';
+import { createGuestRsvp } from '../services/guestService';
+import { subscribeEventStats } from '../services/eventStatsService';
+import { formatWhatsappUrl, formatPhoneDisplay } from '../utils/phone';
 
 interface RsvpSectionProps {
-  guests: Guest[];
+  guests?: Guest[];
+  settings?: EventSettings;
 }
 
-export const RsvpSection: React.FC<RsvpSectionProps> = ({ guests }) => {
-  // Step 1: Search state
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
-  const [hasSearched, setHasSearched] = useState(false);
-
-  // Step 2: Confirmation form state
-  const [status, setStatus] = useState<GuestStatus>('confirmed');
+export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings }) => {
+  // Form fields
+  const [name, setName] = useState('');
+  const [whatsapp, setWhatsapp] = useState('');
+  const [status, setStatus] = useState<'confirmed' | 'declined'>('confirmed');
   const [attendeesCount, setAttendeesCount] = useState(1);
   const [companions, setCompanions] = useState<string[]>([]);
-  const [whatsapp, setWhatsapp] = useState('');
   const [notes, setNotes] = useState('');
 
+  // UI state
   const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState<GuestStatus | null>(null);
+  const [submitted, setSubmitted] = useState<'confirmed' | 'declined' | null>(null);
+  const [submittedData, setSubmittedData] = useState<{
+    name: string;
+    attendees: number;
+    companions: string[];
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Total confirmed attendees across all confirmed guests
-  const confirmedPeopleCount = useMemo(() => {
-    return guests
-      .filter((g) => g.status === 'confirmed')
-      .reduce((acc, curr) => acc + (curr.attendees || 1), 0);
-  }, [guests]);
+  // Real confirmed attendees count from eventStats
+  const [confirmedPeopleCount, setConfirmedPeopleCount] = useState(0);
 
-  // Normalize string for searching (removes accents, lowercase)
-  const normalize = (str: string) =>
-    str
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .trim();
+  useEffect(() => {
+    const unsub = subscribeEventStats((stats) => {
+      setConfirmedPeopleCount(stats.confirmedPeople || 0);
+    });
+    return () => unsub();
+  }, []);
 
-  // Search filtered suggestions
-  const searchResults = useMemo(() => {
-    const q = normalize(searchTerm);
-    if (!q || q.length < 2) return [];
-    return guests.filter((g) => normalize(g.name).includes(q));
-  }, [guests, searchTerm]);
-
-  // When a guest is selected from search
-  const handleSelectGuest = (guest: Guest) => {
-    setSelectedGuest(guest);
-    setSearchTerm(guest.name);
-    setHasSearched(true);
-    setErrorMessage('');
-
-    // Pre-populate fields from existing guest data
-    const currentStatus = guest.status === 'declined' ? 'declined' : 'confirmed';
-    setStatus(currentStatus);
-    setWhatsapp(guest.whatsapp || '');
-    setNotes(guest.notes || '');
-
-    const initialAttendees = Math.max(1, Math.min(1 + guest.maxCompanions, guest.attendees || 1));
-    setAttendeesCount(initialAttendees);
-
-    const neededCompanions = initialAttendees - 1;
-    const existingCompanions = Array.isArray(guest.companions) ? guest.companions : [];
-    const compList: string[] = [];
-    for (let i = 0; i < neededCompanions; i++) {
-      compList.push(existingCompanions[i] || '');
-    }
-    setCompanions(compList);
-  };
-
-  const handleManualSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchTerm.trim()) return;
-    setHasSearched(true);
-
-    const exactOrFirst = searchResults[0];
-    if (exactOrFirst && searchResults.length === 1) {
-      handleSelectGuest(exactOrFirst);
-    }
-  };
-
-  // Handle attendees count change (constrained strictly by guest.maxCompanions)
   const handleAttendeesChange = (val: number) => {
-    if (!selectedGuest) return;
-    const maxAllowed = 1 + (selectedGuest.maxCompanions || 0);
-    const safeCount = Math.max(1, Math.min(maxAllowed, val));
+    const safeCount = Math.max(1, Math.min(10, val));
     setAttendeesCount(safeCount);
 
     const needed = safeCount - 1;
@@ -121,31 +77,42 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ guests }) => {
     e.preventDefault();
     setErrorMessage('');
 
-    if (!selectedGuest) {
-      setErrorMessage('Por favor, localize seu nome na lista de convidados.');
+    const cleanName = name.trim();
+    if (!cleanName || cleanName.length < 2) {
+      setErrorMessage('Por favor, informe seu nome completo.');
       return;
     }
 
-    if (!whatsapp.trim() || whatsapp.replace(/\D/g, '').length < 8) {
-      setErrorMessage('Por favor, informe seu WhatsApp para alinharmos os detalhes.');
+    const cleanPhone = whatsapp.replace(/\D/g, '');
+    if (!cleanPhone || cleanPhone.length < 8) {
+      setErrorMessage('Por favor, informe um WhatsApp válido com DDD.');
       return;
+    }
+
+    if (status === 'confirmed' && attendeesCount > 1) {
+      const emptyCompanions = companions.slice(0, attendeesCount - 1).some((c) => !c.trim());
+      if (emptyCompanions) {
+        setErrorMessage('Por favor, informe o nome de todos os acompanhantes do seu grupo.');
+        return;
+      }
     }
 
     setSubmitting(true);
     try {
-      await confirmGuestRsvp({
-        guestId: selectedGuest.id,
-        name: selectedGuest.name,
+      const filteredCompanions = status === 'confirmed' ? companions.slice(0, attendeesCount - 1) : [];
+
+      await createGuestRsvp({
+        name: cleanName,
         whatsapp,
         status,
         attendees: status === 'confirmed' ? attendeesCount : 0,
-        companions: status === 'confirmed' ? companions : [],
-        notes,
+        companions: filteredCompanions,
+        notes: notes.trim(),
       });
 
       if (status === 'confirmed') {
         confetti({
-          particleCount: 120,
+          particleCount: 140,
           spread: 80,
           origin: { y: 0.6 },
           colors: ['#C86D51', '#E8D9CE', '#8A9A86', '#D4AF37'],
@@ -153,314 +120,276 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ guests }) => {
       }
 
       setSubmitted(status);
+      setSubmittedData({
+        name: cleanName,
+        attendees: status === 'confirmed' ? attendeesCount : 0,
+        companions: filteredCompanions,
+      });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Erro ao registrar confirmação.';
+      const msg = err instanceof Error ? err.message : 'Não foi possível enviar a confirmação. Tente novamente.';
       setErrorMessage(msg);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleReset = () => {
-    setSelectedGuest(null);
-    setSearchTerm('');
-    setHasSearched(false);
-    setStatus('confirmed');
-    setAttendeesCount(1);
-    setCompanions([]);
+  const handleResetForm = () => {
+    setSubmitted(null);
+    setSubmittedData(null);
+    setName('');
     setWhatsapp('');
     setNotes('');
-    setSubmitted(null);
+    setAttendeesCount(1);
+    setCompanions([]);
     setErrorMessage('');
   };
 
+  const hostPhone = settings?.hostWhatsapp || settings?.pixKey?.replace(/\D/g, '') || '';
+  const hostWhatsappLink = formatWhatsappUrl(
+    hostPhone,
+    `Oi Alyne! Acabei de preencher a confirmação de presença no seu site do Open House! ${
+      submitted === 'confirmed' ? 'Com certeza estarei lá comemorando com você! 🎉' : 'Infelizmente não poderei ir, mas deixei meu carinho registrado! ❤️'
+    }`
+  );
+
   return (
-    <section id="rsvp" className="py-16 sm:py-24 bg-[#FAF8F5]">
+    <section id="rsvp" className="py-20 sm:py-28 bg-[#FAF8F5] relative">
       <div className="max-w-3xl mx-auto px-4 sm:px-6">
         {/* Section Header */}
-        <div className="text-center mb-10">
-          <div className="flex items-center justify-center gap-2 text-xs font-semibold tracking-widest uppercase text-[#A95339] mb-3">
-            <Sparkles className="w-3.5 h-3.5 text-[#C86D51]" />
-            <span>Confirmação de Presença</span>
+        <div className="text-center mb-10 sm:mb-12">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#F3E7DE] text-[#A95339] text-xs font-semibold tracking-widest uppercase mb-4">
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Vossa Ilustríssima Presença</span>
           </div>
 
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-[#2D2A26] mb-4">
-            Vossa Ilustríssima Presença
+          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-[#2D2A26] tracking-tight mb-4">
+            Confirme sua Presença
           </h2>
 
-          <p className="text-base sm:text-lg text-[#68625B] max-w-xl mx-auto leading-relaxed">
-            Esse evento é super intimista e exclusivo para amigos e família. Confirme sua presença para organizarmos os quitutes e bebidas na medida certa!
+          <p className="text-base text-[#68625B] max-w-xl mx-auto leading-relaxed">
+            Sua presença é o maior presente! Por favor, confirme até{' '}
+            <strong className="text-[#2D2A26] font-semibold">10 dias antes</strong> para que eu possa planejar as comidinhas, bebidas e o espaço com todo o carinho.
           </p>
 
-          {/* Real Counter */}
-          <div className="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#F4EFEB] border border-[#EADBCE] text-sm text-[#464039]">
-            <Users className="w-4 h-4 text-[#C86D51]" />
-            <span>
-              <strong className="font-semibold text-[#2D2A26] tabular-nums">{confirmedPeopleCount}</strong>{' '}
-              {confirmedPeopleCount === 1 ? 'pessoa já confirmou' : 'pessoas já confirmaram'} presença!
-            </span>
-          </div>
+          {/* Real Confirmed Attendees Counter */}
+          {confirmedPeopleCount > 0 && (
+            <div className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-2xl bg-white border border-[#EADBCE] shadow-2xs text-xs sm:text-sm text-[#2D2A26]">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>
+                <strong className="font-semibold text-emerald-700">{confirmedPeopleCount}</strong>{' '}
+                {confirmedPeopleCount === 1 ? 'pessoa querida já confirmou' : 'pessoas queridas já confirmaram'} presença!
+              </span>
+            </div>
+          )}
         </div>
 
-        {/* Form Container */}
-        <div className="bg-[#FFFFFF] border border-[#EADBCE] rounded-3xl p-6 sm:p-10 shadow-xs">
-          {/* STATE 1: Submitted view */}
+        {/* Main Card */}
+        <div className="bg-white rounded-3xl border border-[#EADBCE] p-6 sm:p-10 shadow-xs">
           {submitted ? (
-            <div className="text-center py-6">
-              <div className="w-16 h-16 rounded-full bg-[#FBF0EB] text-[#C86D51] flex items-center justify-center mx-auto mb-5">
-                <Heart className="w-8 h-8 fill-[#C86D51]" />
+            /* Success State */
+            <div className="text-center py-6 sm:py-8 space-y-5">
+              <div
+                className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
+                  submitted === 'confirmed'
+                    ? 'bg-emerald-100 text-emerald-700'
+                    : 'bg-[#F4EFEB] text-[#68625B]'
+                }`}
+              >
+                {submitted === 'confirmed' ? (
+                  <CheckCircle2 className="w-8 h-8" />
+                ) : (
+                  <Heart className="w-8 h-8 fill-current text-[#C86D51]" />
+                )}
               </div>
 
-              {submitted === 'confirmed' ? (
-                <>
-                  <h3 className="font-serif text-2xl sm:text-3xl font-medium text-[#2D2A26] mb-3">
-                    Presença Confirmada, {selectedGuest?.name}! 🎉
-                  </h3>
-                  <p className="text-base text-[#68625B] max-w-md mx-auto leading-relaxed mb-6">
-                    {attendeesCount > 1
-                      ? `Confirmamos você e seus acompanhantes (${attendeesCount} pessoas no total). Contando os minutos!`
-                      : 'Sua presença está confirmada com carinho. Mal vejo a hora de te receber no novo lar!'}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h3 className="font-serif text-2xl sm:text-3xl font-medium text-[#2D2A26] mb-3">
-                    Resposta Registrada! 😭
-                  </h3>
-                  <p className="text-base text-[#68625B] max-w-md mx-auto leading-relaxed mb-6">
-                    Poxa, você fará muita falta no dia! Mas vamos marcar um café ou almoço no novo apê em outra data com certeza. ❤️
-                  </p>
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={handleReset}
-                className="inline-flex items-center justify-center px-6 py-2.5 rounded-xl border border-[#EADBCE] text-xs font-semibold text-[#68625B] hover:text-[#2D2A26] hover:bg-[#FAF8F5] transition-colors cursor-pointer"
-              >
-                Voltar à consulta de convidados
-              </button>
-            </div>
-          ) : !selectedGuest ? (
-            /* STATE 2: Search guest on guest list */
-            <div>
-              <div className="text-center mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center mx-auto mb-3">
-                  <UserCheck className="w-6 h-6" />
-                </div>
-                <h3 className="font-serif text-xl sm:text-2xl font-medium text-[#2D2A26]">
-                  Localize seu Convite
+              <div>
+                <h3 className="font-serif text-2xl sm:text-3xl font-medium text-[#2D2A26]">
+                  {submitted === 'confirmed' ? 'Presença Confirmada! 🎉' : 'Resposta Registrada ❤️'}
                 </h3>
-                <p className="text-xs sm:text-sm text-[#68625B] mt-1 max-w-md mx-auto">
-                  Digite seu nome abaixo para verificar seu convite e o número de acompanhantes permitidos.
+                <p className="text-sm text-[#68625B] mt-2 max-w-md mx-auto leading-relaxed">
+                  {submitted === 'confirmed' ? (
+                    <>
+                      Obrigada por confirmar, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>! Mal posso esperar para brindar essa nova fase com você no meu apê novo.
+                    </>
+                  ) : (
+                    <>
+                      Poxa, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>, vamos sentir sua falta! Mas obrigada pelo carinho de avisar. Sempre que quiser, as portas estarão abertas!
+                    </>
+                  )}
                 </p>
               </div>
 
-              <form onSubmit={handleManualSearch} className="space-y-4 max-w-lg mx-auto">
-                <div className="relative">
-                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value);
-                      setHasSearched(false);
-                    }}
-                    placeholder="Digite seu nome (ex: Camila Santos)..."
-                    className="w-full h-12 pl-10 pr-24 rounded-2xl border border-[#EADBCE] bg-[#FAF8F5] text-sm text-[#2D2A26] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all"
-                  />
-                  <button
-                    type="submit"
-                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-9 px-4 rounded-xl bg-[#C86D51] hover:bg-[#A95339] text-white text-xs font-semibold tracking-wide transition-colors cursor-pointer flex items-center gap-1"
+              {submitted === 'confirmed' && submittedData && submittedData.attendees > 0 && (
+                <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] text-xs text-left max-w-md mx-auto space-y-1.5">
+                  <div className="flex justify-between text-[#68625B]">
+                    <span>Total no seu grupo:</span>
+                    <strong className="text-[#2D2A26]">
+                      {submittedData.attendees} {submittedData.attendees === 1 ? 'pessoa' : 'pessoas'}
+                    </strong>
+                  </div>
+                  {submittedData.companions.length > 0 && (
+                    <div className="text-[#68625B]">
+                      <span>Acompanhante(s): </span>
+                      <strong className="text-[#2D2A26]">{submittedData.companions.join(', ')}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3 max-w-md mx-auto">
+                {hostPhone && (
+                  <a
+                    href={hostWhatsappLink}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="w-full sm:w-auto h-11 px-5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-semibold tracking-wide flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
-                    <span>Buscar</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Suggestions List */}
-                {searchTerm.trim().length >= 2 && searchResults.length > 0 && (
-                  <div className="bg-white border border-[#EADBCE] rounded-2xl p-2 shadow-lg space-y-1">
-                    <span className="block text-[11px] font-semibold text-[#A59E95] uppercase tracking-wider px-3 py-1">
-                      Convidados encontrados ({searchResults.length}):
-                    </span>
-                    {searchResults.map((g) => (
-                      <button
-                        key={g.id}
-                        type="button"
-                        onClick={() => handleSelectGuest(g)}
-                        className="w-full text-left px-3 py-2.5 rounded-xl hover:bg-[#FBF0EB] flex items-center justify-between text-sm transition-colors cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2">
-                          <UserCheck className="w-4 h-4 text-[#C86D51]" />
-                          <span className="font-medium text-[#2D2A26]">{g.name}</span>
-                        </div>
-                        <span className="text-xs text-[#7D756C]">
-                          {g.maxCompanions === 0
-                            ? 'Convite Individual'
-                            : `+ até ${g.maxCompanions} acomp.`}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Mandar recado no WhatsApp</span>
+                  </a>
                 )}
 
-                {/* Not found warning */}
-                {hasSearched && searchResults.length === 0 && searchTerm.trim().length >= 2 && (
-                  <div className="p-4 rounded-2xl bg-amber-50/80 border border-amber-200 text-xs text-amber-900 space-y-2">
-                    <div className="flex items-start gap-2">
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="block font-semibold">
-                          Não encontramos "{searchTerm}" na lista de convidados.
-                        </strong>
-                        <p className="mt-1 text-amber-800 leading-relaxed">
-                          Apenas pessoas com nome na lista oficial podem confirmar presença e adicionar acompanhantes.
-                          Por favor, verifique se digitou o nome como está no convite ou envie uma mensagem diretamente para a Alyne no WhatsApp!
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 text-center">
-                      <a
-                        href="https://wa.me/5511999999999?text=Oi%20Alyne!%20Tentei%20confirmar%20presenca%20no%20seu%20Open%20House%20mas%20nao%20achei%20meu%20nome%20na%20lista."
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>Falar com a Alyne no WhatsApp</span>
-                      </a>
-                    </div>
-                  </div>
-                )}
-              </form>
-            </div>
-          ) : (
-            /* STATE 3: Confirmation for selected guest */
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Selected guest header badge */}
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE]">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center">
-                    <UserCheck className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-serif text-base font-semibold text-[#2D2A26]">
-                      {selectedGuest.name}
-                    </h4>
-                    <p className="text-xs text-[#7D756C]">
-                      {selectedGuest.maxCompanions === 0
-                        ? 'Convite individual (apenas você)'
-                        : `Convite válido para você + até ${selectedGuest.maxCompanions} acompanhante(s)`}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleReset}
-                  className="text-xs text-[#C86D51] hover:underline font-medium cursor-pointer"
+                <a
+                  href="#presentes"
+                  className="w-full sm:w-auto h-11 px-5 rounded-xl bg-[#C86D51] hover:bg-[#A95339] text-white text-xs font-semibold tracking-wide flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
-                  Trocar nome
-                </button>
+                  <Heart className="w-4 h-4 fill-white" />
+                  <span>Ver Lista de Presentes</span>
+                </a>
               </div>
 
-              {/* Status Selector */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleResetForm}
+                  className="text-xs text-[#A59E95] hover:text-[#2D2A26] transition-colors underline cursor-pointer"
+                >
+                  Enviar outra resposta ou atualizar dados
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Open RSVP Form */
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* 1. Nome Completo */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
+                  Seu Nome Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ex: Gabriela Ribeiro"
+                  maxLength={80}
+                  className="w-full h-12 px-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-sm text-[#2D2A26] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all"
+                />
+              </div>
+
+              {/* 2. WhatsApp */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
+                  Seu WhatsApp (com DDD) *
+                </label>
+                <input
+                  type="tel"
+                  required
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  placeholder="Ex: (11) 98765-4321"
+                  maxLength={25}
+                  className="w-full h-12 px-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-sm text-[#2D2A26] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all font-mono"
+                />
+                <span className="text-[11px] text-[#A59E95] mt-1 block">
+                  Usado apenas para alinharmos detalhes e avisos sobre o evento.
+                </span>
+              </div>
+
+              {/* 3. Confirmação de Presença (Sim ou Não) */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-2">
-                  Você vai conseguir vir?
+                  Você estará presente no evento? *
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setStatus('confirmed')}
-                    className={`h-12 px-4 rounded-xl border flex items-center justify-center gap-2.5 text-sm font-medium transition-all cursor-pointer ${
+                    className={`h-13 px-4 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                       status === 'confirmed'
-                        ? 'border-[#C86D51] bg-[#FBF0EB] text-[#A95339] shadow-xs'
-                        : 'border-[#EADBCE] bg-white text-[#68625B] hover:border-[#D5C6BA]'
+                        ? 'border-emerald-600 bg-emerald-50/70 text-emerald-800 shadow-xs ring-2 ring-emerald-500/20'
+                        : 'border-[#EADBCE] bg-[#FAF8F5] text-[#68625B] hover:bg-white'
                     }`}
                   >
                     <CheckCircle2
-                      className={`w-4 h-4 ${status === 'confirmed' ? 'text-[#C86D51]' : 'text-stone-400'}`}
+                      className={`w-5 h-5 ${status === 'confirmed' ? 'text-emerald-700' : 'text-emerald-500'}`}
                     />
-                    <span>Sim, estarei presente 🎉</span>
+                    <span>Com certeza irei! 🎉</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => setStatus('declined')}
-                    className={`h-12 px-4 rounded-xl border flex items-center justify-center gap-2.5 text-sm font-medium transition-all cursor-pointer ${
+                    className={`h-13 px-4 rounded-xl border text-xs sm:text-sm font-semibold flex items-center justify-center gap-2.5 transition-all cursor-pointer ${
                       status === 'declined'
-                        ? 'border-stone-400 bg-stone-100 text-stone-700 shadow-xs'
-                        : 'border-[#EADBCE] bg-white text-[#68625B] hover:border-[#D5C6BA]'
+                        ? 'border-stone-400 bg-stone-100 text-stone-800 shadow-xs ring-2 ring-stone-400/20'
+                        : 'border-[#EADBCE] bg-[#FAF8F5] text-[#68625B] hover:bg-white'
                     }`}
                   >
                     <XCircle
-                      className={`w-4 h-4 ${status === 'declined' ? 'text-stone-700' : 'text-stone-400'}`}
+                      className={`w-5 h-5 ${status === 'declined' ? 'text-stone-700' : 'text-stone-400'}`}
                     />
-                    <span>Infelizmente não poderei ir 😭</span>
+                    <span>Infelizmente não poderei 😢</span>
                   </button>
                 </div>
               </div>
 
-              {/* If Confirmed: Attendees & Companions */}
+              {/* 4. Se Confirmado: Quantidade de Pessoas e Acompanhantes */}
               {status === 'confirmed' && (
                 <div className="space-y-4 pt-2 border-t border-[#F0E6DE]">
-                  {/* Total attendees dropdown / buttons */}
-                  {selectedGuest.maxCompanions > 0 ? (
-                    <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-[#68625B]">
-                          Total de Pessoas (Você + Acompanhantes)
-                        </label>
-                        <span className="text-[11px] text-[#A59E95]">
-                          Máximo permitido: {1 + selectedGuest.maxCompanions}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        {Array.from({ length: 1 + selectedGuest.maxCompanions }).map((_, i) => {
-                          const count = i + 1;
-                          const isSelected = attendeesCount === count;
-                          return (
-                            <button
-                              key={count}
-                              type="button"
-                              onClick={() => handleAttendeesChange(count)}
-                              className={`h-10 px-4 rounded-xl text-xs font-semibold transition-all cursor-pointer border ${
-                                isSelected
-                                  ? 'bg-[#C86D51] border-[#C86D51] text-white shadow-xs'
-                                  : 'bg-white border-[#EADBCE] text-[#68625B] hover:border-[#D5C6BA]'
-                              }`}
-                            >
-                              {count === 1 ? '1 (Apenas Eu)' : `${count} pessoas`}
-                            </button>
-                          );
-                        })}
-                      </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-[#68625B]">
+                        Quantas pessoas no seu grupo (incluindo você)?
+                      </label>
+                      <span className="text-xs font-bold text-[#C86D51]">
+                        {attendeesCount} {attendeesCount === 1 ? 'pessoa' : 'pessoas'}
+                      </span>
                     </div>
-                  ) : (
-                    <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] text-xs text-[#68625B] flex items-center gap-2">
-                      <Clock className="w-4 h-4 text-[#C86D51]" />
-                      <span>Seu convite é individual (1 pessoa confirmada).</span>
-                    </div>
-                  )}
 
-                  {/* Companion names inputs */}
+                    <div className="flex flex-wrap gap-2">
+                      {[1, 2, 3, 4, 5, 6].map((num) => (
+                        <button
+                          key={num}
+                          type="button"
+                          onClick={() => handleAttendeesChange(num)}
+                          className={`h-10 px-4 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                            attendeesCount === num
+                              ? 'bg-[#C86D51] border-[#C86D51] text-white shadow-xs'
+                              : 'bg-[#FAF8F5] border-[#EADBCE] text-[#68625B] hover:bg-white'
+                          }`}
+                        >
+                          {num === 1 ? 'Apenas Eu' : `${num} pessoas`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Dynamic inputs for companions */}
                   {attendeesCount > 1 && (
-                    <div className="space-y-2.5 pt-2">
+                    <div className="space-y-3 pt-2">
                       <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B]">
                         Nome dos Acompanhantes
                       </label>
-                      {companions.map((comp, idx) => (
+                      {Array.from({ length: attendeesCount - 1 }).map((_, idx) => (
                         <div key={idx}>
                           <input
                             type="text"
                             required
-                            value={comp}
+                            value={companions[idx] || ''}
                             onChange={(e) => handleCompanionNameChange(idx, e.target.value)}
-                            placeholder={`Nome completo do acompanhante ${idx + 1}`}
+                            placeholder={`Nome completo do ${idx + 1}º acompanhante`}
+                            maxLength={80}
                             className="w-full h-11 px-3.5 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none transition-all"
                           />
                         </div>
@@ -470,48 +399,50 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ guests }) => {
                 </div>
               )}
 
-              {/* WhatsApp */}
+              {/* 5. Mensagem carinhosa ou restrição alimentar */}
               <div>
                 <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
-                  Seu WhatsApp *
-                </label>
-                <input
-                  type="tel"
-                  required
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  placeholder="(11) 99999-9999"
-                  className="w-full h-11 px-3.5 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none transition-all"
-                />
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
-                  Recado para a Alyne ou restrição alimentar
+                  Recado carinhoso para a Alyne ou restrição alimentar (opcional)
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Ex: Não como carne de porco / Estou muito animada pra conhecer o apê!"
-                  className="w-full p-3 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none transition-all resize-none"
+                  placeholder="Ex: Não como carne de porco / Mal posso esperar pra conhecer o apê novo e brindar com você!"
+                  maxLength={500}
+                  className="w-full p-3.5 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none transition-all resize-none"
                 />
+                <div className="text-right text-[10px] text-[#A59E95] mt-1">
+                  {notes.length}/500 caracteres
+                </div>
               </div>
 
               {errorMessage && (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{errorMessage}</span>
                 </div>
               )}
 
+              {/* Submit Button */}
               <button
                 type="submit"
                 disabled={submitting}
-                className="w-full h-12 rounded-xl bg-[#C86D51] hover:bg-[#A95339] disabled:opacity-50 text-white text-xs font-semibold tracking-wide uppercase transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs"
+                className="w-full h-13 rounded-xl bg-[#C86D51] hover:bg-[#A95339] disabled:opacity-50 text-white text-xs sm:text-sm font-semibold tracking-wide uppercase transition-colors cursor-pointer flex items-center justify-center gap-2 shadow-xs"
               >
-                {submitting ? 'Salvando confirmação...' : status === 'confirmed' ? 'Confirmar Presença 🎉' : 'Salvar Resposta 😭'}
+                {submitting ? (
+                  <span>Gravando sua confirmação...</span>
+                ) : status === 'confirmed' ? (
+                  <>
+                    <Heart className="w-4 h-4 fill-white" />
+                    <span>Confirmar Presença no Evento</span>
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-4 h-4" />
+                    <span>Enviar Resposta</span>
+                  </>
+                )}
               </button>
             </form>
           )}
