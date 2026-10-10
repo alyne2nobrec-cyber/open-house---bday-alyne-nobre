@@ -8,40 +8,31 @@ import {
   query,
   orderBy,
   serverTimestamp,
-  getDoc,
+  getDocs,
+  writeBatch,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { Guest, GuestStatus } from '../types';
-import { INITIAL_GUESTS } from '../data/defaultData';
+import { incrementConfirmedAttendees } from './eventStatsService';
 
 const GUESTS_COLLECTION = 'guests';
 const LOCAL_GUESTS_KEY = 'alyne_guests_cache_v2';
 
 let localGuestListeners: Array<(guests: Guest[]) => void> = [];
 
-function getLocalStoredGuests(): Guest[] {
+export function getLocalStoredGuests(): Guest[] {
   try {
     const raw = localStorage.getItem(LOCAL_GUESTS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
   } catch (e) {
     console.warn('Error reading local guests:', e);
   }
-
-  // Seed default guests if empty
-  const seeded: Guest[] = INITIAL_GUESTS.map((g, idx) => ({
-    ...g,
-    id: `guest-seed-${idx + 1}`,
-    createdAt: new Date().toISOString(),
-  }));
-  try {
-    localStorage.setItem(LOCAL_GUESTS_KEY, JSON.stringify(seeded));
-  } catch {}
-  return seeded;
+  return [];
 }
 
 function saveLocalGuests(list: Guest[]) {
@@ -57,7 +48,10 @@ function notifyGuestListeners() {
   localGuestListeners.forEach((fn) => fn(list));
 }
 
-export function subscribeGuests(callback: (guests: Guest[]) => void) {
+export function subscribeGuests(
+  callback: (guests: Guest[]) => void,
+  onError?: (error: Error) => void
+) {
   if (!isFirebaseConfigured || !db) {
     localGuestListeners.push(callback);
     callback(getLocalStoredGuests());
@@ -71,9 +65,9 @@ export function subscribeGuests(callback: (guests: Guest[]) => void) {
 
   return onSnapshot(
     q,
-    async (snapshot) => {
+    (snapshot) => {
       if (snapshot.empty) {
-        callback(getLocalStoredGuests());
+        callback([]);
         return;
       }
 
@@ -88,7 +82,7 @@ export function subscribeGuests(callback: (guests: Guest[]) => void) {
           companions: Array.isArray(d.companions) ? d.companions : [],
           status: (d.status as GuestStatus) || 'pending',
           notes: d.notes || '',
-          confirmedAt: d.confirmedAt,
+          confirmedAt: d.confirmedAt?.toDate ? d.confirmedAt.toDate().toISOString() : d.confirmedAt,
           createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
           updatedAt: d.updatedAt?.toDate ? d.updatedAt.toDate().toISOString() : d.updatedAt,
         };
@@ -98,13 +92,94 @@ export function subscribeGuests(callback: (guests: Guest[]) => void) {
     },
     (err) => {
       console.warn('Firestore guests subscription error:', err);
-      callback(getLocalStoredGuests());
+      if (onError) onError(err);
+      callback([]);
     }
   );
 }
 
 /**
- * Add a new guest to the guest list
+ * Open RSVP submission from public guest
+ * Adheres strictly to isValidGuestCreate() in firestore.rules
+ */
+export async function createGuestRsvp(params: {
+  name: string;
+  whatsapp: string;
+  status: 'confirmed' | 'declined';
+  attendees: number;
+  companions?: string[];
+  notes?: string;
+}): Promise<string> {
+  const { name, whatsapp, status, attendees, companions = [], notes = '' } = params;
+
+  const cleanName = name.trim().slice(0, 80);
+  const cleanWhatsapp = whatsapp.trim().slice(0, 25);
+  const cleanCompanions = companions
+    .map((c) => c.trim().slice(0, 80))
+    .filter((c) => c.length > 0)
+    .slice(0, 9);
+  const cleanNotes = (notes || '').trim().slice(0, 500);
+
+  if (!cleanName) {
+    throw new Error('Por favor, informe seu nome completo.');
+  }
+  if (!cleanWhatsapp || cleanWhatsapp.length < 8) {
+    throw new Error('Por favor, informe seu WhatsApp para contato (mínimo 8 dígitos).');
+  }
+
+  const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(10, attendees)) : 0;
+
+  const newGuest: Guest = {
+    id: `guest-${Date.now()}`,
+    name: cleanName,
+    whatsapp: cleanWhatsapp,
+    maxCompanions: cleanCompanions.length,
+    attendees: finalAttendees,
+    companions: status === 'confirmed' ? cleanCompanions : [],
+    status,
+    notes: cleanNotes,
+    confirmedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+
+  // Local caching for responsive feedback
+  const list = getLocalStoredGuests();
+  list.unshift(newGuest);
+  saveLocalGuests(list);
+  notifyGuestListeners();
+
+  // Atomically increment public confirmed counter in eventStats
+  if (status === 'confirmed' && finalAttendees > 0) {
+    try {
+      await incrementConfirmedAttendees(finalAttendees);
+    } catch (e) {
+      console.warn('Stats counter error:', e);
+    }
+  }
+
+  if (isFirebaseConfigured && db) {
+    try {
+      const docRef = await addDoc(collection(db, GUESTS_COLLECTION), {
+        name: cleanName,
+        whatsapp: cleanWhatsapp,
+        attendees: finalAttendees,
+        companions: status === 'confirmed' ? cleanCompanions : [],
+        status,
+        ...(cleanNotes ? { notes: cleanNotes } : {}),
+        createdAt: serverTimestamp(),
+      });
+      return docRef.id;
+    } catch (e: any) {
+      console.error('Firebase guest creation error:', e);
+      throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
+    }
+  }
+
+  return newGuest.id;
+}
+
+/**
+ * Add a guest manually from the admin panel
  */
 export async function addGuest(params: {
   name: string;
@@ -131,13 +206,13 @@ export async function addGuest(params: {
 
   const newGuest: Guest = {
     id: `guest-${Date.now()}`,
-    name: name.trim(),
-    whatsapp: whatsapp.trim(),
+    name: name.trim().slice(0, 80),
+    whatsapp: whatsapp.trim().slice(0, 25),
     maxCompanions: Math.max(0, Number(maxCompanions)),
     attendees: status === 'confirmed' ? Math.max(1, attendees) : 0,
     companions: status === 'confirmed' ? companions : [],
     status,
-    notes: notes.trim(),
+    notes: notes.trim().slice(0, 500),
     createdAt: new Date().toISOString(),
   };
 
@@ -146,10 +221,15 @@ export async function addGuest(params: {
   saveLocalGuests(list);
   notifyGuestListeners();
 
-  if (isFirebaseConfigured) {
+  if (isFirebaseConfigured && db) {
     try {
       const docRef = await addDoc(collection(db, GUESTS_COLLECTION), {
-        ...newGuest,
+        name: newGuest.name,
+        whatsapp: newGuest.whatsapp,
+        attendees: newGuest.attendees,
+        companions: newGuest.companions,
+        status: newGuest.status,
+        ...(newGuest.notes ? { notes: newGuest.notes } : {}),
         createdAt: serverTimestamp(),
       });
       return docRef.id;
@@ -178,8 +258,8 @@ export async function addGuestsBatch(names: string[], defaultMaxCompanions = 1):
   for (const rawName of cleanNames) {
     const newGuest: Guest = {
       id: `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      name: rawName,
-      whatsapp: '',
+      name: rawName.slice(0, 80),
+      whatsapp: '00000000',
       maxCompanions: defaultMaxCompanions,
       attendees: 0,
       companions: [],
@@ -194,16 +274,19 @@ export async function addGuestsBatch(names: string[], defaultMaxCompanions = 1):
   saveLocalGuests(updated);
   notifyGuestListeners();
 
-  if (isFirebaseConfigured) {
+  if (isFirebaseConfigured && db) {
     for (const g of addedList) {
       try {
         await addDoc(collection(db, GUESTS_COLLECTION), {
-          ...g,
+          name: g.name,
+          whatsapp: g.whatsapp,
+          attendees: g.attendees,
+          companions: g.companions,
+          status: g.status,
           createdAt: serverTimestamp(),
         });
       } catch (e) {
         console.warn('Firebase batch add failed:', e);
-        throw new Error('Não foi possível importar todos os convidados no banco de dados.');
       }
     }
   }
@@ -213,6 +296,7 @@ export async function addGuestsBatch(names: string[], defaultMaxCompanions = 1):
 
 /**
  * Import a list of parsed guests from CSV
+ * Mode 'replace' truly deletes existing Firestore guests before inserting!
  */
 export async function importGuestsFromList(
   guestsList: Array<{
@@ -237,13 +321,13 @@ export async function importGuestsFromList(
 
     const g: Guest = {
       id: `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      name: item.name.trim(),
-      whatsapp: item.whatsapp?.trim() || '',
+      name: item.name.trim().slice(0, 80),
+      whatsapp: (item.whatsapp?.trim() || '00000000').slice(0, 25),
       maxCompanions: maxComp,
       attendees,
       companions: Array.isArray(item.companions) ? item.companions : [],
       status,
-      notes: item.notes?.trim() || '',
+      notes: (item.notes?.trim() || '').slice(0, 500),
       createdAt: new Date().toISOString(),
     };
     newItems.push(g);
@@ -253,16 +337,35 @@ export async function importGuestsFromList(
   saveLocalGuests(combined);
   notifyGuestListeners();
 
-  if (isFirebaseConfigured) {
+  if (isFirebaseConfigured && db) {
+    // If replace mode: delete all existing guests in Firestore first!
+    if (mode === 'replace') {
+      try {
+        const snap = await getDocs(collection(db, GUESTS_COLLECTION));
+        const batch = writeBatch(db);
+        snap.docs.forEach((docSnap) => {
+          batch.delete(docSnap.ref);
+        });
+        await batch.commit();
+      } catch (err) {
+        console.warn('Could not clear existing Firestore guests:', err);
+      }
+    }
+
+    // Insert new guests
     for (const g of newItems) {
       try {
         await addDoc(collection(db, GUESTS_COLLECTION), {
-          ...g,
+          name: g.name,
+          whatsapp: g.whatsapp,
+          attendees: g.attendees,
+          companions: g.companions,
+          status: g.status,
+          ...(g.notes ? { notes: g.notes } : {}),
           createdAt: serverTimestamp(),
         });
       } catch (e) {
-        console.warn('Firebase importGuestsFromList failed:', e);
-        throw new Error('Não foi possível importar os convidados no banco de dados.');
+        console.warn('Firebase importGuestsFromList failed for row:', e);
       }
     }
   }
@@ -282,7 +385,7 @@ export async function updateGuest(guestId: string, updates: Partial<Guest>): Pro
     notifyGuestListeners();
   }
 
-  if (isFirebaseConfigured) {
+  if (isFirebaseConfigured && db) {
     try {
       const ref = doc(db, GUESTS_COLLECTION, guestId);
       const cleanUpdates: Record<string, unknown> = {
@@ -306,7 +409,7 @@ export async function deleteGuest(guestId: string): Promise<void> {
   saveLocalGuests(list);
   notifyGuestListeners();
 
-  if (isFirebaseConfigured) {
+  if (isFirebaseConfigured && db) {
     try {
       await deleteDoc(doc(db, GUESTS_COLLECTION, guestId));
     } catch (e) {
@@ -314,106 +417,4 @@ export async function deleteGuest(guestId: string): Promise<void> {
       throw new Error('Não foi possível excluir o convidado no banco de dados.');
     }
   }
-}
-
-/**
- * Confirm or decline RSVP by an invited guest.
- * Verifies that the guest exists on the list and that companions do not exceed maxCompanions.
- */
-export async function confirmGuestRsvp(params: {
-  guestId: string;
-  name: string;
-  whatsapp: string;
-  status: GuestStatus;
-  attendees: number;
-  companions: string[];
-  notes?: string;
-}): Promise<Guest> {
-  const { guestId, name, whatsapp, status, attendees, companions, notes = '' } = params;
-
-  let guest: Guest | undefined;
-
-  if (isFirebaseConfigured) {
-    const guestRef = doc(db, GUESTS_COLLECTION, guestId);
-    const snap = await getDoc(guestRef);
-    if (!snap.exists()) {
-      throw new Error('Convidado não encontrado na lista oficial de convidados.');
-    }
-
-    const d = snap.data();
-    guest = {
-      id: snap.id,
-      name: d.name || '',
-      whatsapp: d.whatsapp || '',
-      maxCompanions: Number(d.maxCompanions ?? 1),
-      attendees: Number(d.attendees || 0),
-      companions: Array.isArray(d.companions) ? d.companions : [],
-      status: (d.status as GuestStatus) || 'pending',
-      notes: d.notes || '',
-      confirmedAt: d.confirmedAt,
-      createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
-      updatedAt: d.updatedAt?.toDate ? d.updatedAt.toDate().toISOString() : d.updatedAt,
-    };
-  } else {
-    const list = getLocalStoredGuests();
-    guest = list.find((g) => g.id === guestId);
-  }
-
-  if (!guest) {
-    throw new Error('Convidado não encontrado na lista oficial de convidados.');
-  }
-
-  // Validate allowed companions
-  const allowedMax = guest.maxCompanions;
-  const filteredCompanions = companions.map((c) => c.trim()).filter((c) => c.length > 0);
-
-  if (status === 'confirmed') {
-    if (filteredCompanions.length > allowedMax) {
-      throw new Error(`Seu convite permite no máximo ${allowedMax} acompanhante(s).`);
-    }
-  }
-
-  const finalAttendees = status === 'confirmed' ? 1 + filteredCompanions.length : 0;
-  const finalCompanions = status === 'confirmed' ? filteredCompanions : [];
-
-  const updated: Guest = {
-    ...guest,
-    name: name.trim() || guest.name,
-    whatsapp: whatsapp.trim() || guest.whatsapp,
-    status,
-    attendees: finalAttendees,
-    companions: finalCompanions,
-    notes: notes.trim(),
-    confirmedAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-
-  const index = getLocalStoredGuests().findIndex((g) => g.id === guestId);
-  if (index >= 0) {
-    const list = getLocalStoredGuests();
-    list[index] = updated;
-    saveLocalGuests(list);
-    notifyGuestListeners();
-  }
-
-  if (isFirebaseConfigured) {
-    try {
-      const ref = doc(db, GUESTS_COLLECTION, guestId);
-      await updateDoc(ref, {
-        name: updated.name,
-        whatsapp: updated.whatsapp,
-        status: updated.status,
-        attendees: updated.attendees,
-        companions: updated.companions,
-        notes: updated.notes,
-        confirmedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } catch (e) {
-      console.warn('Firebase confirmGuestRsvp error:', e);
-      throw new Error('Não foi possível registrar a confirmação no banco de dados.');
-    }
-  }
-
-  return updated;
 }

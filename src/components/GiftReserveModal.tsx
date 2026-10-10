@@ -30,20 +30,17 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
   const [copiaEColaCopied, setCopiaEColaCopied] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
-  if (!gift) return null;
-
-  const isSoldOut = gift.availableQuantity <= 0;
-  const maxAvailable = Math.max(1, gift.availableQuantity);
-
-  const activePixKey = (gift.pixKey || '').trim() || settings?.pixKey || 'alyne2.nobre.c@gmail.com';
+  const activePixKey = (gift?.pixKey || '').trim() || settings?.pixKey || 'alyne2.nobre.c@gmail.com';
   const activePixKeyType = settings?.pixKeyType || 'E-mail';
   const activeReceiverName = settings?.pixReceiverName || 'Alyne Nobre';
   const activeBankName = settings?.pixBankName || '';
-  const activeBankLink = (gift.pixBankLink || '').trim() || (settings?.pixBankLink || '').trim();
-  const activeCopiaECola = (gift.pixCopiaECola || '').trim() || (settings?.pixCopiaECola || '').trim();
-  const activeOfficialQrImage = (gift.pixQrCodeUrl || '').trim() || (settings?.pixQrCodeUrl || '').trim();
+  const activeBankLink = (gift?.pixBankLink || '').trim() || (settings?.pixBankLink || '').trim();
+  const activeCopiaECola = (gift?.pixCopiaECola || '').trim() || (settings?.pixCopiaECola || '').trim();
+  const activeOfficialQrImage = (gift?.pixQrCodeUrl || '').trim() || (settings?.pixQrCodeUrl || '').trim();
 
   useEffect(() => {
+    if (!gift) return;
+
     // Priority 1: Host uploaded official QR Code image from bank
     if (activeOfficialQrImage) {
       setQrCodeDataUrl(activeOfficialQrImage);
@@ -83,7 +80,12 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
         .then((dataUrl) => setQrCodeDataUrl(dataUrl))
         .catch(() => setQrCodeDataUrl(''));
     }
-  }, [activeOfficialQrImage, activeCopiaECola, activePixKey, gift.price, gift.id, gift.name, quantity, activeReceiverName]);
+  }, [activeOfficialQrImage, activeCopiaECola, activePixKey, gift?.price, gift?.id, gift?.name, quantity, activeReceiverName, gift]);
+
+  if (!gift) return null;
+
+  const isSoldOut = gift.availableQuantity <= 0;
+  const maxAvailable = Math.max(1, gift.availableQuantity);
 
   const handleCopyPix = async () => {
     try {

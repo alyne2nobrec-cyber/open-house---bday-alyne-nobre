@@ -32,20 +32,14 @@ export function getLocalStoredReservations(): GiftReservation[] {
     const raw = localStorage.getItem(LOCAL_RESERVATIONS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) {
+      if (Array.isArray(parsed)) {
         return parsed;
       }
     }
   } catch (e) {
     console.warn('Error reading local reservations:', e);
   }
-
-  // Seed default reservations
-  const seeded = [...INITIAL_RESERVATIONS];
-  try {
-    localStorage.setItem(LOCAL_RESERVATIONS_KEY, JSON.stringify(seeded));
-  } catch {}
-  return seeded;
+  return [];
 }
 
 function saveLocalReservations(list: GiftReservation[]) {
@@ -137,11 +131,14 @@ function notifyGiftListeners() {
   localGiftListeners.forEach((fn) => fn(merged));
 }
 
-const isAdminUser = () => {
-  return typeof window !== 'undefined' && !!localStorage.getItem('alyne_admin_logged_in');
+export const isAdminUser = () => {
+  return typeof window !== 'undefined' && localStorage.getItem('alyne_admin_logged_in') === 'true';
 };
 
-export function subscribeGifts(callback: (gifts: Gift[]) => void) {
+export function subscribeGifts(
+  callback: (gifts: Gift[]) => void,
+  onError?: (error: Error) => void
+) {
   if (!isFirebaseConfigured || !db) {
     localGiftListeners.push(callback);
     callback(getLocalMergedGifts());
@@ -151,26 +148,25 @@ export function subscribeGifts(callback: (gifts: Gift[]) => void) {
   }
 
   const giftsRef = collection(db, GIFTS_COLLECTION);
-  let shouldSeed = true;
+  let hasAttemptedSeed = false;
 
   const unsubscribe = onSnapshot(
     giftsRef,
     async (snapshot) => {
-      if (snapshot.empty && shouldSeed) {
-        shouldSeed = false;
-        if (isAdminUser()) {
+      if (snapshot.empty) {
+        if (isAdminUser() && !hasAttemptedSeed) {
+          hasAttemptedSeed = true;
           try {
             await seedGiftsToFirestore();
             return;
           } catch (err) {
-            console.warn('Could not seed gifts to Firestore:', err);
+            console.warn('Could not auto-seed gifts:', err);
           }
         }
-        callback(INITIAL_GIFTS.map((g, idx) => ({ ...g, id: `gift-seed-${idx + 1}` })));
+        callback([]);
         return;
       }
 
-      shouldSeed = false;
       const items: Gift[] = snapshot.docs.map((docSnap) => {
         const data = docSnap.data();
         return {
@@ -187,6 +183,8 @@ export function subscribeGifts(callback: (gifts: Gift[]) => void) {
           purchaseUrl: data.purchaseUrl || '',
           pixKey: data.pixKey || '',
           pixQrCodeUrl: data.pixQrCodeUrl || '',
+          pixCopiaECola: data.pixCopiaECola || '',
+          pixBankLink: data.pixBankLink || '',
           status: data.status || 'available',
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
@@ -202,8 +200,9 @@ export function subscribeGifts(callback: (gifts: Gift[]) => void) {
       callback(items);
     },
     (error) => {
-      console.warn('Firestore subscription error:', error.message);
-      callback(INITIAL_GIFTS.map((g, idx) => ({ ...g, id: `gift-seed-${idx + 1}` })));
+      console.warn('Firestore gifts subscription error:', error.message);
+      if (onError) onError(error);
+      callback([]);
     }
   );
 
@@ -211,6 +210,7 @@ export function subscribeGifts(callback: (gifts: Gift[]) => void) {
 }
 
 export async function seedGiftsToFirestore(): Promise<void> {
+  if (!db) return;
   const batch = writeBatch(db);
   const giftsRef = collection(db, GIFTS_COLLECTION);
 
@@ -218,6 +218,9 @@ export async function seedGiftsToFirestore(): Promise<void> {
     const newDoc = doc(giftsRef);
     batch.set(newDoc, {
       ...item,
+      reservedQuantity: 0,
+      availableQuantity: item.totalQuantity,
+      status: item.totalQuantity > 0 ? 'available' : 'sold_out',
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -242,23 +245,30 @@ export async function reserveGiftWithTransaction(params: {
   if (!guestName.trim()) {
     throw new Error('Por favor, informe seu nome para a Alyne saber quem é!');
   }
+  if (!guestWhatsapp.trim()) {
+    throw new Error('Por favor, informe seu WhatsApp para contato.');
+  }
 
   // Resolve gift name
   const currentGifts = getLocalMergedGifts();
   const foundGift = currentGifts.find((g) => g.id === giftId);
   const resolvedGiftName = giftName?.trim() || foundGift?.name || 'Presente Especial';
+  const resolvedUnitPrice = foundGift?.price || 0;
 
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     try {
       const reservations = getLocalStoredReservations();
       const newReservation: GiftReservation = {
         id: `local-res-${Date.now()}`,
         giftId,
         giftName: resolvedGiftName,
-        guestName: guestName.trim(),
-        guestWhatsapp: guestWhatsapp.trim(),
+        guestName: guestName.trim().slice(0, 80),
+        guestWhatsapp: guestWhatsapp.trim().slice(0, 25),
         quantity,
-        message: message?.trim() || '',
+        unitPrice: resolvedUnitPrice,
+        totalAmount: resolvedUnitPrice * quantity,
+        paid: false,
+        message: (message || '').trim().slice(0, 500),
         createdAt: new Date().toISOString(),
       };
       reservations.unshift(newReservation);
@@ -271,19 +281,21 @@ export async function reserveGiftWithTransaction(params: {
     return { success: true };
   }
 
-  const giftRef = doc(db, GIFTS_COLLECTION, giftId);
+  const firestore = db;
+  const giftRef = doc(firestore, GIFTS_COLLECTION, giftId);
 
   try {
-    await runTransaction(db, async (transaction) => {
+    await runTransaction(firestore, async (transaction) => {
       const giftDoc = await transaction.get(giftRef);
 
       if (!giftDoc.exists()) {
-        throw new Error('Presente não encontrado.');
+        throw new Error('Presente não encontrado no banco de dados. A lista pode ter sido atualizada pela anfitriã.');
       }
 
       const data = giftDoc.data();
       const currentAvailable = Number(data.availableQuantity ?? 0);
       const status = data.status || 'available';
+      const unitPrice = Number(data.price || 0);
 
       if (status !== 'available') {
         throw new Error('Poxa! Esse presente não está disponível no momento.');
@@ -304,40 +316,46 @@ export async function reserveGiftWithTransaction(params: {
         updatedAt: serverTimestamp(),
       });
 
-      const reservationRef = doc(collection(db, RESERVATIONS_COLLECTION));
+      const reservationRef = doc(collection(firestore, RESERVATIONS_COLLECTION));
       transaction.set(reservationRef, {
         giftId,
-        giftName: data.name || resolvedGiftName,
-        guestName: guestName.trim(),
-        guestWhatsapp: guestWhatsapp.trim(),
+        giftName: (data.name || resolvedGiftName).slice(0, 120),
+        guestName: guestName.trim().slice(0, 80),
+        guestWhatsapp: guestWhatsapp.trim().slice(0, 25),
         quantity,
-        message: message?.trim() || '',
+        unitPrice,
+        totalAmount: unitPrice * quantity,
+        paid: false,
+        message: (message || '').trim().slice(0, 500),
         createdAt: serverTimestamp(),
       });
     });
 
     return { success: true };
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Não foi possível concluir a reserva.';
+    const errorMsg = error instanceof Error ? error.message : 'Não foi possível concluir a reserva.';
 
-    if (message.includes('Poxa!')) {
-      throw new Error(message);
+    if (errorMsg.includes('Poxa!') || errorMsg.includes('Presente não encontrado')) {
+      throw new Error(errorMsg);
     }
 
-    if (message.includes('permission') || message.includes('permissão')) {
-      throw new Error('Permissão negada ao reservar o presente.');
+    if (errorMsg.includes('permission') || errorMsg.includes('permissão')) {
+      throw new Error('Permissão negada ao reservar o presente no servidor.');
     }
 
-    if (message.includes('network') || message.includes('offline') || message.includes('fetch')) {
-      throw new Error('Sem conexão. Tente novamente em alguns segundos.');
+    if (errorMsg.includes('network') || errorMsg.includes('offline') || errorMsg.includes('fetch')) {
+      throw new Error('Sem conexão com o servidor. Tente novamente em alguns segundos.');
     }
 
-    throw new Error(message || 'Não foi possível concluir a reserva.');
+    throw new Error(errorMsg || 'Não foi possível concluir a reserva.');
   }
 }
 
-export function subscribeReservations(callback: (reservations: GiftReservation[]) => void) {
-  if (!isFirebaseConfigured) {
+export function subscribeReservations(
+  callback: (reservations: GiftReservation[]) => void,
+  onError?: (error: Error) => void
+) {
+  if (!isFirebaseConfigured || !db) {
     localReservationListeners.push(callback);
     callback(getLocalStoredReservations());
     return () => {
@@ -353,13 +371,21 @@ export function subscribeReservations(callback: (reservations: GiftReservation[]
     (snapshot) => {
       const list: GiftReservation[] = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
+        const quantity = Number(d.quantity || 1);
+        const unitPrice = Number(d.unitPrice || 0);
+        const totalAmount = Number(d.totalAmount !== undefined ? d.totalAmount : unitPrice * quantity);
+
         return {
           id: docSnap.id,
           giftId: d.giftId || '',
           giftName: d.giftName || '',
           guestName: d.guestName || '',
           guestWhatsapp: d.guestWhatsapp || '',
-          quantity: Number(d.quantity || 1),
+          quantity,
+          unitPrice,
+          totalAmount,
+          paid: Boolean(d.paid),
+          paidAt: d.paidAt?.toDate ? d.paidAt.toDate().toISOString() : d.paidAt,
           message: d.message || '',
           createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
         };
@@ -368,15 +394,53 @@ export function subscribeReservations(callback: (reservations: GiftReservation[]
     },
     (err) => {
       console.warn('Error fetching reservations:', err);
+      if (onError) onError(err);
       callback([]);
     }
   );
 }
 
+export async function updateReservationPayment(
+  reservationId: string,
+  paid: boolean
+): Promise<void> {
+  const localList = getLocalStoredReservations();
+  const index = localList.findIndex((r) => r.id === reservationId);
+  if (index >= 0) {
+    localList[index] = {
+      ...localList[index],
+      paid,
+      paidAt: paid ? new Date().toISOString() : undefined,
+    };
+    saveLocalReservations(localList);
+    notifyReservationListeners();
+  }
+
+  if (isFirebaseConfigured && db) {
+    const reservationRef = doc(db, RESERVATIONS_COLLECTION, reservationId);
+    await updateDoc(reservationRef, {
+      paid,
+      paidAt: paid ? serverTimestamp() : null,
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+export async function deleteReservation(reservationId: string): Promise<void> {
+  const localList = getLocalStoredReservations().filter((r) => r.id !== reservationId);
+  saveLocalReservations(localList);
+  notifyReservationListeners();
+
+  if (isFirebaseConfigured && db) {
+    const reservationRef = doc(db, RESERVATIONS_COLLECTION, reservationId);
+    await deleteDoc(reservationRef);
+  }
+}
+
 export async function createGift(giftData: Omit<Gift, 'id'>): Promise<string> {
   const total = Number(giftData.totalQuantity || 1);
 
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     const id = `gift-custom-${Date.now()}`;
     const newGift: Gift = {
       ...giftData,
@@ -406,7 +470,7 @@ export async function createGift(giftData: Omit<Gift, 'id'>): Promise<string> {
 }
 
 export async function updateGift(giftId: string, giftData: Partial<Gift>): Promise<void> {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     const list = getLocalCustomGifts();
     const index = list.findIndex((g) => g.id === giftId);
     if (index >= 0) {
@@ -431,7 +495,7 @@ export async function updateGift(giftId: string, giftData: Partial<Gift>): Promi
 }
 
 export async function deleteGift(giftId: string): Promise<void> {
-  if (!isFirebaseConfigured) {
+  if (!isFirebaseConfigured || !db) {
     const list = getLocalCustomGifts().filter((g) => g.id !== giftId);
     localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(list));
 
