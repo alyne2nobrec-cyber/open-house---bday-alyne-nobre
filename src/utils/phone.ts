@@ -6,17 +6,17 @@ export function isValidWhatsappNumber(phone?: string | null): boolean {
   if (!phone) return false;
   const digits = phone.replace(/\D/g, '');
   if (!digits) return false;
-
-  // Reject all identical repeating digits like '00000000', '00000000000', '11111111111'
   if (/^(\d)\1+$/.test(digits)) return false;
-
-  // Brazilian numbers: 10 digits (DDD + 8 digits) or 11 digits (DDD + 9 digits)
-  // If prefixed with 55: 12 or 13 digits
-  if (digits.startsWith('55')) {
-    return digits.length >= 12 && digits.length <= 13;
+  if (phone.trim().startsWith('+')) {
+    const intlDigits = digits;
+    return intlDigits.length >= 8 && intlDigits.length <= 15 && !/^0+$/.test(intlDigits);
   }
 
-  // Without 55 prefix: 10 or 11 digits
+  if (digits.startsWith('55')) {
+    const noCountry = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
+    return noCountry.length === 10 || noCountry.length === 11;
+  }
+
   return digits.length === 10 || digits.length === 11;
 }
 
@@ -26,11 +26,14 @@ export function isValidWhatsappNumber(phone?: string | null): boolean {
  */
 export function formatWhatsappUrl(phone: string, text?: string): string {
   if (!isValidWhatsappNumber(phone)) return '';
-  const digits = phone.replace(/\D/g, '');
+  const raw = phone.trim();
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
 
   let clean = digits;
-  // If user entered 10 or 11 digits (Brazilian DDD + number without country code 55), prepend 55
-  if (!clean.startsWith('55') && (clean.length === 10 || clean.length === 11)) {
+  if (raw.startsWith('+')) {
+    clean = `+${digits}`;
+  } else if (!clean.startsWith('55') && (clean.length === 10 || clean.length === 11)) {
     clean = `55${clean}`;
   }
 
@@ -44,6 +47,7 @@ export function formatWhatsappUrl(phone: string, text?: string): string {
 export function formatPhoneDisplay(phone: string): string {
   if (!phone) return '';
   const digits = phone.replace(/\D/g, '');
+  if (!digits || /^0+$/.test(digits)) return '';
   if (digits.length === 11) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   }
@@ -53,5 +57,24 @@ export function formatPhoneDisplay(phone: string): string {
   if (digits.length === 13 && digits.startsWith('55')) {
     return `+55 (${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
   }
+  if (phone.trim().startsWith('+')) {
+    return phone.trim();
+  }
   return phone;
+}
+
+export function normalizePhoneId(phone?: string | null): string | null {
+  if (!phone) return null;
+  const digits = phone.replace(/\D/g, '');
+  if (!digits || digits === '00000000' || /^\d$/.test(digits) || digits === '0000000000' || /^0+$/.test(digits)) {
+    return null;
+  }
+
+  const normalized = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
+  const last11 = normalized.length > 11 ? normalized.slice(-11) : normalized;
+  if (!last11 || /^\d$/.test(last11) || /^0+$/.test(last11)) {
+    return null;
+  }
+
+  return last11;
 }

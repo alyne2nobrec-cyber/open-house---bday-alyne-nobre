@@ -21,6 +21,17 @@ import { auth } from './lib/firebase';
 
 const AdminDashboard = lazy(() => import('./components/Admin/AdminDashboard').then((module) => ({ default: module.AdminDashboard })));
 
+const ADMIN_ALLOWED_EMAILS = [
+  'alyne.custodio@dux-company.com',
+  'alyne2.nobre.c@gmail.com',
+];
+
+export function isAdminEmail(email?: string | null): boolean {
+  const normalized = (email || '').trim().toLowerCase();
+  const envAdmin = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
+  return Boolean(normalized && (normalized === envAdmin || ADMIN_ALLOWED_EMAILS.includes(normalized)));
+}
+
 export default function App() {
   const [settings, setSettings] = useState<EventSettings>(DEFAULT_SETTINGS);
   const [gifts, setGifts] = useState<Gift[]>(
@@ -29,42 +40,25 @@ export default function App() {
   const [guests, setGuests] = useState<Guest[]>([]);
   const [reservations, setReservations] = useState<GiftReservation[]>([]);
 
-  // Modals state
   const [selectedGift, setSelectedGift] = useState<Gift | null>(null);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
+  const [authSessionLoading, setAuthSessionLoading] = useState(true);
 
   useEffect(() => {
-    const adminEmail = (import.meta.env.VITE_ADMIN_EMAIL || 'alyne2.nobre.c@gmail.com').trim().toLowerCase();
-    const hasLocalAdmin = typeof window !== 'undefined' && localStorage.getItem('alyne_admin_logged_in') === 'true';
-
-    if (hasLocalAdmin) {
-      setIsAdminLoggedIn(true);
-    }
-
     if (!auth) {
-      if (!hasLocalAdmin) {
-        setIsAdminLoggedIn(false);
-        setIsAdminDashboardOpen(false);
-      }
+      setIsAdminLoggedIn(false);
+      setIsAdminDashboardOpen(false);
+      setAuthSessionLoading(false);
       return;
     }
 
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      const email = user?.email?.trim().toLowerCase();
-      const isLogged = Boolean(
-        user && (
-          email === adminEmail ||
-          email === 'alyne.custodio@dux-company.com' ||
-          email === 'alyne2.nobre.c@gmail.com'
-        )
-      );
-      if (isLogged) {
-        localStorage.setItem('alyne_admin_logged_in', 'true');
-        setIsAdminLoggedIn(true);
-      } else if (!hasLocalAdmin) {
-        setIsAdminLoggedIn(false);
+      const allowed = isAdminEmail(user?.email || null);
+      setIsAdminLoggedIn(allowed);
+      setAuthSessionLoading(false);
+      if (!allowed) {
         setIsAdminDashboardOpen(false);
       }
     });
@@ -72,7 +66,6 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // Listeners
   useEffect(() => {
     const unsubSettings = subscribeSettings((newSettings) => {
       setSettings(newSettings);
@@ -88,7 +81,7 @@ export default function App() {
 
     let unsubReservations = () => {};
 
-    if (isAdminLoggedIn) {
+    if (isAdminLoggedIn && !authSessionLoading) {
       unsubReservations = subscribeReservations((newReservations) => {
         setReservations(newReservations);
       });
@@ -102,7 +95,7 @@ export default function App() {
       unsubGuests();
       unsubReservations();
     };
-  }, [isAdminLoggedIn]);
+  }, [isAdminLoggedIn, authSessionLoading]);
 
   const handleScrollTo = (id: string) => {
     const element = document.getElementById(id);
@@ -120,13 +113,11 @@ export default function App() {
   };
 
   const handleLoginSuccess = () => {
-    localStorage.setItem('alyne_admin_logged_in', 'true');
     setIsAdminLoggedIn(true);
     setIsAdminDashboardOpen(true);
   };
 
   const handleLogout = async () => {
-    localStorage.removeItem('alyne_admin_logged_in');
     try {
       if (auth) {
         await signOut(auth);

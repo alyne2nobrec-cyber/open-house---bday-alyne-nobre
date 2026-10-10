@@ -13,6 +13,7 @@ import {
   getDocs,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { Gift, GiftReservation } from '../types';
 import { INITIAL_GIFTS, INITIAL_RESERVATIONS } from '../data/defaultData';
 
@@ -78,7 +79,7 @@ function getLocalDeletedGifts(): string[] {
     const raw = localStorage.getItem(LOCAL_DELETED_GIFTS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
-    return [];
+    return {} as any;
   }
 }
 
@@ -132,7 +133,9 @@ function notifyGiftListeners() {
 }
 
 export const isAdminUser = () => {
-  return typeof window !== 'undefined' && localStorage.getItem('alyne_admin_logged_in') === 'true';
+  const email = auth?.currentUser?.email?.trim().toLowerCase();
+  const envAdmin = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
+  return Boolean(email && (email === envAdmin || email === 'alyne.custodio@dux-company.com' || email === 'alyne2.nobre.c@gmail.com'));
 };
 
 export function subscribeGifts(
@@ -210,7 +213,7 @@ export function subscribeGifts(
 }
 
 export async function seedGiftsToFirestore(): Promise<void> {
-  if (!db) return;
+  if (!db || !isAdminUser()) return;
   const batch = writeBatch(db);
   const giftsRef = collection(db, GIFTS_COLLECTION);
 
@@ -249,7 +252,6 @@ export async function reserveGiftWithTransaction(params: {
     throw new Error('Por favor, informe seu WhatsApp para contato.');
   }
 
-  // Resolve gift name
   const currentGifts = getLocalMergedGifts();
   const foundGift = currentGifts.find((g) => g.id === giftId);
   const resolvedGiftName = giftName?.trim() || foundGift?.name || 'Presente Especial';
