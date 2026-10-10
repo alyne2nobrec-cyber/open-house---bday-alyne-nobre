@@ -51,6 +51,7 @@ import { parseGuestsCsv, downloadSampleGuestsCsv, ParsedCsvGuest } from '../../u
 import { downloadCsvFile } from '../../utils/csvExport';
 import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
+import { WhatsAppTab } from './WhatsAppTab';
 
 interface AdminDashboardProps {
   gifts: Gift[];
@@ -61,7 +62,7 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type AdminTab = 'overview' | 'gifts' | 'guests' | 'whoGaveWhat' | 'settings';
+type AdminTab = 'overview' | 'gifts' | 'guests' | 'whoGaveWhat' | 'whatsapp' | 'settings';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   gifts,
@@ -529,6 +530,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             Convidados ({guests.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('whatsapp')}
+            className={`h-9 px-4 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'whatsapp'
+                ? 'bg-[#C86D51] text-white shadow-xs'
+                : 'text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F4EFEB]'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            WhatsApp 💬
           </button>
 
           <button
@@ -1927,6 +1940,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
             </form>
           </div>
+        )}
+
+        {/* ===================== TAB: WHATSAPP ===================== */}
+        {activeTab === 'whatsapp' && (
+          <WhatsAppTab
+            guests={guests}
+            reservations={reservations}
+            settings={settings}
+          />
         )}
 
       </main>
