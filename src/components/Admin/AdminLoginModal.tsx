@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { X, Lock, Mail, KeyRound, AlertCircle, ShieldCheck } from 'lucide-react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { auth, isFirebaseConfigured } from '../../lib/firebase';
+import { isAdminEmail } from '../../App';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -46,7 +47,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     }
 
     try {
-      await signInWithEmailAndPassword(auth, email.trim(), password);
+      const trimmedEmail = email.trim();
+      const credential = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      if (!isAdminEmail(credential.user.email)) {
+        await signOut(auth);
+        setError('Este e-mail não tem permissão de anfitriã.');
+        return;
+      }
       onLoginSuccess();
       onClose();
     } catch (err: unknown) {

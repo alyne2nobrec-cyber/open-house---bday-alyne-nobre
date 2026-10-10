@@ -10,15 +10,56 @@ import {
   serverTimestamp,
   getDocs,
   writeBatch,
+  setDoc,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { Guest, GuestStatus } from '../types';
 import { incrementConfirmedAttendees } from './eventStatsService';
+import { normalizePhoneId } from '../utils/phone';
 
 const GUESTS_COLLECTION = 'guests';
 const LOCAL_GUESTS_KEY = 'alyne_guests_cache_v2';
 
 let localGuestListeners: Array<(guests: Guest[]) => void> = [];
+
+function makeGuestId(name: string, whatsapp?: string): string {
+  const phoneKey = normalizePhoneId(whatsapp);
+  if (phoneKey) return `guest-${phoneKey}`;
+  const safeName = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `guest-${safeName || 'anon'}-${Date.now()}`;
+}
+
+function findMatchingGuest(list: Guest[], name: string, whatsapp?: string): Guest | undefined {
+  const normalizedName = name.trim().toLowerCase();
+  const phoneKey = normalizePhoneId(whatsapp);
+
+  if (phoneKey) {
+    const byPhone = list.find((guest) => normalizePhoneId(guest.whatsapp) === phoneKey);
+    if (byPhone) return byPhone;
+  }
+
+  return list.find((guest) => (guest.name || '').trim().toLowerCase() === normalizedName);
+}
+
+async function findMatchingGuestInFirestore(name: string, whatsapp?: string): Promise<{ id: string; data: any } | undefined> {
+  if (!isFirebaseConfigured || !db) return undefined;
+
+  const phoneKey = normalizePhoneId(whatsapp);
+  const normalizedName = name.trim().toLowerCase();
+  const snapshot = await getDocs(collection(db, GUESTS_COLLECTION));
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data();
+    if (phoneKey && normalizePhoneId(data.whatsapp) === phoneKey) {
+      return { id: docSnap.id, data };
+    }
+    if ((data.name || '').trim().toLowerCase() === normalizedName) {
+      return { id: docSnap.id, data };
+    }
+  }
+
+  return undefined;
+}
 
 export function getLocalStoredGuests(): Guest[] {
   try {
@@ -98,6 +139,22 @@ export function subscribeGuests(
   );
 }
 
+export function getReservationsForGuest(guest: Pick<Guest, 'name' | 'whatsapp'>, reservations: Array<{ guestName: string; guestWhatsapp?: string }>): Array<{ guestName: string; guestWhatsapp?: string }> {
+  const normalizedGuestName = (guest.name || '').trim().toLowerCase();
+  const normalizedPhone = normalizePhoneId(guest.whatsapp);
+
+  return reservations.filter((reservation) => {
+    const reservationName = (reservation.guestName || '').trim().toLowerCase();
+    const reservationPhone = normalizePhoneId(reservation.guestWhatsapp);
+
+    return (
+      reservationName === normalizedGuestName ||
+      (normalizedPhone && reservationPhone && normalizedPhone === reservationPhone) ||
+      (normalizedPhone && (reservation.guestWhatsapp || '').replace(/\D/g, '').includes(normalizedPhone))
+    );
+  });
+}
+
 /**
  * Open RSVP submission from public guest
  * Adheres strictly to isValidGuestCreate() in firestore.rules
@@ -128,9 +185,24 @@ export async function createGuestRsvp(params: {
   }
 
   const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(10, attendees)) : 0;
+  const guestId = makeGuestId(cleanName, cleanWhatsapp);
+  const existingLocal = findMatchingGuest(getLocalStoredGuests(), cleanName, cleanWhatsapp);
+  const existingRemote = await findMatchingGuestInFirestore(cleanName, cleanWhatsapp);
+  const existingGuest = existingLocal || (existingRemote ? {
+    id: existingRemote.id,
+    name: cleanName,
+    whatsapp: cleanWhatsapp,
+    maxCompanions: cleanCompanions.length,
+    attendees: Number(existingRemote.data?.attendees || 0),
+    companions: Array.isArray(existingRemote.data?.companions) ? existingRemote.data.companions : [],
+    status: existingRemote.data?.status || 'pending',
+    notes: existingRemote.data?.notes || '',
+    confirmedAt: existingRemote.data?.confirmedAt,
+    createdAt: existingRemote.data?.createdAt,
+  } as Guest : undefined);
 
-  const newGuest: Guest = {
-    id: `guest-${Date.now()}`,
+  const guestData: Guest = {
+    id: existingGuest?.id || guestId,
     name: cleanName,
     whatsapp: cleanWhatsapp,
     maxCompanions: cleanCompanions.length,
@@ -139,43 +211,61 @@ export async function createGuestRsvp(params: {
     status,
     notes: cleanNotes,
     confirmedAt: new Date().toISOString(),
-    createdAt: new Date().toISOString(),
+    createdAt: existingGuest?.createdAt || new Date().toISOString(),
   };
 
-  // Local caching for responsive feedback
   const list = getLocalStoredGuests();
-  list.unshift(newGuest);
+  if (existingGuest) {
+    const index = list.findIndex((guest) => guest.id === existingGuest.id || (guest.name || '').trim().toLowerCase() === cleanName.toLowerCase() || normalizePhoneId(guest.whatsapp) === normalizePhoneId(cleanWhatsapp));
+    if (index >= 0) {
+      list[index] = { ...list[index], ...guestData, id: existingGuest.id, updatedAt: new Date().toISOString() };
+    } else {
+      list.unshift(guestData);
+    }
+  } else {
+    list.unshift(guestData);
+  }
   saveLocalGuests(list);
   notifyGuestListeners();
 
-  // Atomically increment public confirmed counter in eventStats
-  if (status === 'confirmed' && finalAttendees > 0) {
-    try {
-      await incrementConfirmedAttendees(finalAttendees);
-    } catch (e) {
-      console.warn('Stats counter error:', e);
+  if (status === 'confirmed' && finalAttendees > 0 && (!existingGuest || existingGuest.status !== 'confirmed' || existingGuest.attendees !== finalAttendees)) {
+    const delta = Math.max(0, finalAttendees - (existingGuest?.attendees || 0));
+    if (delta > 0) {
+      try {
+        await incrementConfirmedAttendees(delta);
+      } catch (e) {
+        console.warn('Stats counter error:', e);
+      }
     }
   }
 
   if (isFirebaseConfigured && db) {
     try {
-      const docRef = await addDoc(collection(db, GUESTS_COLLECTION), {
+      const firestoreGuestDoc = existingRemote ? doc(db, GUESTS_COLLECTION, existingRemote.id) : doc(collection(db, GUESTS_COLLECTION), existingGuest?.id || guestId);
+      const payload = {
         name: cleanName,
         whatsapp: cleanWhatsapp,
         attendees: finalAttendees,
         companions: status === 'confirmed' ? cleanCompanions : [],
         status,
         ...(cleanNotes ? { notes: cleanNotes } : {}),
-        createdAt: serverTimestamp(),
-      });
-      return docRef.id;
+        updatedAt: serverTimestamp(),
+        ...(existingRemote ? {} : { createdAt: serverTimestamp() }),
+      };
+
+      if (existingRemote) {
+        await setDoc(firestoreGuestDoc, payload, { merge: true });
+      } else {
+        await setDoc(firestoreGuestDoc, payload, { merge: true });
+      }
+      return existingRemote?.id || existingGuest?.id || guestId;
     } catch (e: any) {
       console.error('Firebase guest creation error:', e);
       throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
     }
   }
 
-  return newGuest.id;
+  return guestData.id;
 }
 
 /**
