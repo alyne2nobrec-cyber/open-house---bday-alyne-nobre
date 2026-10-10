@@ -79,7 +79,7 @@ function getLocalDeletedGifts(): string[] {
     const raw = localStorage.getItem(LOCAL_DELETED_GIFTS_KEY);
     return raw ? JSON.parse(raw) : [];
   } catch {
-    return {} as any;
+    return [];
   }
 }
 

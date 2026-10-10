@@ -61,6 +61,9 @@ interface AdminDashboardProps {
   settings: EventSettings;
   onClose: () => void;
   onLogout: () => void;
+  reservationsError?: string | null;
+  guestsError?: string | null;
+  onRetrySubscriptions?: () => void;
 }
 
 type AdminTab = 'overview' | 'gifts' | 'guests' | 'whoGaveWhat' | 'whatsapp' | 'settings';
@@ -72,6 +75,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   settings,
   onClose,
   onLogout,
+  reservationsError,
+  guestsError,
+  onRetrySubscriptions,
 }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
 
@@ -559,6 +565,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
+        {/* Error notification banner if subscriptions fail */}
+        {(reservationsError || guestsError) && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-1">
+                {reservationsError && (
+                  <p>
+                    <strong className="font-semibold">Aviso nas reservas:</strong> Não foi possível carregar as reservas: {reservationsError}
+                  </p>
+                )}
+                {guestsError && (
+                  <p>
+                    <strong className="font-semibold">Aviso nos convidados:</strong> Não foi possível carregar os convidados: {guestsError}
+                  </p>
+                )}
+              </div>
+            </div>
+            {onRetrySubscriptions && (
+              <button
+                type="button"
+                onClick={onRetrySubscriptions}
+                className="h-9 px-4 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer shrink-0"
+              >
+                Tentar de novo
+              </button>
+            )}
+          </div>
+        )}
         
         {/* ===================== TAB 1: VISÃO GERAL ===================== */}
         {activeTab === 'overview' && (

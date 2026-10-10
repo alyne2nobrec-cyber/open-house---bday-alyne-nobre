@@ -7,6 +7,7 @@ export function isValidWhatsappNumber(phone?: string | null): boolean {
   const digits = phone.replace(/\D/g, '');
   if (!digits) return false;
   if (/^(\d)\1+$/.test(digits)) return false;
+
   if (phone.trim().startsWith('+')) {
     const intlDigits = digits;
     return intlDigits.length >= 8 && intlDigits.length <= 15 && !/^0+$/.test(intlDigits);
@@ -48,6 +49,7 @@ export function formatPhoneDisplay(phone: string): string {
   if (!phone) return '';
   const digits = phone.replace(/\D/g, '');
   if (!digits || /^0+$/.test(digits)) return '';
+
   if (digits.length === 11) {
     return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
   }
@@ -63,6 +65,11 @@ export function formatPhoneDisplay(phone: string): string {
   return phone;
 }
 
+/**
+ * Normalizes a WhatsApp phone into an 11-digit (or 10-digit) deterministic ID string.
+ * Strips non-digits and Brazilian country code (55) if present.
+ * Returns null if the phone is missing, all zeroes, repeating digits, or too short.
+ */
 export function normalizePhoneId(phone?: string | null): string | null {
   if (!phone) return null;
   const digits = phone.replace(/\D/g, '');

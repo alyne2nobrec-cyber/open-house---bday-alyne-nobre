@@ -50,6 +50,9 @@ export default function App() {
   const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [authSessionLoading, setAuthSessionLoading] = useState(true);
+  const [guestsError, setGuestsError] = useState<string | null>(null);
+  const [reservationsError, setReservationsError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
     if (!auth) {
@@ -80,18 +83,36 @@ export default function App() {
       setGifts(newGifts);
     });
 
-    const unsubGuests = subscribeGuests((newGuests) => {
-      setGuests(newGuests);
-    });
-
+    let unsubGuests = () => {};
     let unsubReservations = () => {};
 
     if (isAdminLoggedIn && !authSessionLoading) {
-      unsubReservations = subscribeReservations((newReservations) => {
-        setReservations(newReservations);
-      });
+      unsubGuests = subscribeGuests(
+        (newGuests) => {
+          setGuests(newGuests);
+          setGuestsError(null);
+        },
+        (err) => {
+          console.error('Guests subscription error:', err);
+          setGuestsError(err.message || 'Erro ao carregar lista de convidados.');
+        }
+      );
+
+      unsubReservations = subscribeReservations(
+        (newReservations) => {
+          setReservations(newReservations);
+          setReservationsError(null);
+        },
+        (err) => {
+          console.error('Reservations subscription error:', err);
+          setReservationsError(err.message || 'Erro ao carregar reservas.');
+        }
+      );
     } else {
+      setGuests([]);
       setReservations([]);
+      setGuestsError(null);
+      setReservationsError(null);
     }
 
     return () => {
@@ -100,7 +121,13 @@ export default function App() {
       unsubGuests();
       unsubReservations();
     };
-  }, [isAdminLoggedIn, authSessionLoading]);
+  }, [isAdminLoggedIn, authSessionLoading, retryKey]);
+
+  const handleRetrySubscriptions = () => {
+    setGuestsError(null);
+    setReservationsError(null);
+    setRetryKey((prev) => prev + 1);
+  };
 
   const handleScrollTo = (id: string) => {
     const element = document.getElementById(id);
@@ -189,15 +216,27 @@ export default function App() {
 
       {/* Admin Full Dashboard */}
       {isAdminDashboardOpen && (
-        <Suspense fallback={<div className="fixed inset-0 z-50 bg-black/30" /> }>
-          <AdminDashboard
-            gifts={gifts}
-            guests={guests}
-            reservations={reservations}
-            settings={settings}
-            onClose={() => setIsAdminDashboardOpen(false)}
-            onLogout={handleLogout}
-          />
+        <Suspense fallback={<div className="fixed inset-0 z-50 bg-[#2D2A26]/40 backdrop-blur-xs flex items-center justify-center text-white text-sm">Carregando painel...</div>}>
+          {authSessionLoading ? (
+            <div className="fixed inset-0 z-50 bg-[#2D2A26]/40 backdrop-blur-xs flex items-center justify-center">
+              <div className="bg-white rounded-2xl p-6 shadow-xl flex items-center gap-3">
+                <div className="w-5 h-5 border-2 border-[#C86D51] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-medium text-[#2D2A26]">Verificando sessão da anfitriã...</span>
+              </div>
+            </div>
+          ) : (
+            <AdminDashboard
+              gifts={gifts}
+              guests={guests}
+              reservations={reservations}
+              settings={settings}
+              onClose={() => setIsAdminDashboardOpen(false)}
+              onLogout={handleLogout}
+              reservationsError={reservationsError}
+              guestsError={guestsError}
+              onRetrySubscriptions={handleRetrySubscriptions}
+            />
+          )}
         </Suspense>
       )}
     </div>

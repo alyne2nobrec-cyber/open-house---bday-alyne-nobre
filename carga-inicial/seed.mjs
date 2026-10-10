@@ -82,7 +82,9 @@ function loadGuests() {
     if (phone && phone.length < 8) errors.push(`${where}: WhatsApp curto demais`);
     const max = parseInt((r[iMax] || '1').replace(/\D/g, ''), 10);
     const maxCompanions = Number.isNaN(max) ? 1 : Math.max(0, Math.min(9, max));
-    const id = 'guest-' + slug(name);
+    const cleanPhone = phone.startsWith('55') && phone.length > 11 ? phone.slice(2) : phone;
+    const phoneId = cleanPhone.length >= 8 && !/^0+$/.test(cleanPhone) && !/^(\d)\1+$/.test(cleanPhone) ? cleanPhone.slice(-11) : null;
+    const id = phoneId || ('guest-' + slug(name));
     if (seen.has(id)) errors.push(`${where}: nome duplicado na planilha`);
     seen.add(id);
     out.push({ id, data: {
