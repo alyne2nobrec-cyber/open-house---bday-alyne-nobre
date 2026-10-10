@@ -24,21 +24,16 @@ let localGuestListeners: Array<(guests: Guest[]) => void> = [];
 
 function makeGuestId(whatsapp?: string, name?: string): string {
   const phoneKey = normalizePhoneId(whatsapp);
-  if (phoneKey) return phoneKey;
-  const safeName = (name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return `guest-${safeName || 'anon'}-${Date.now()}`;
+  const safeName = normalizeGuestName(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+  return `guest-${safeName || 'anon'}-${phoneKey || 'no-phone'}`;
 }
 
 function findMatchingGuest(list: Guest[], name: string, whatsapp?: string): Guest | undefined {
-  const normalizedName = name.trim().toLowerCase();
+  const normalizedName = normalizeGuestName(name);
   const phoneKey = normalizePhoneId(whatsapp);
-
-  if (phoneKey) {
-    const byPhone = list.find((guest) => normalizePhoneId(guest.whatsapp) === phoneKey);
-    if (byPhone) return byPhone;
-  }
-
-  return list.find((guest) => (guest.name || '').trim().toLowerCase() === normalizedName);
+  return list.find((guest) =>
+    normalizeGuestName(guest.name) === normalizedName && normalizePhoneId(guest.whatsapp) === phoneKey
+  );
 }
 
 export function getLocalStoredGuests(): Guest[] {
@@ -181,10 +176,10 @@ export async function createGuestRsvp(params: {
 
   const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(10, attendees)) : 0;
   const phoneKey = normalizePhoneId(cleanWhatsapp);
-  const guestId = phoneKey || makeGuestId(cleanWhatsapp, cleanName);
+  const guestId = makeGuestId(cleanWhatsapp, cleanName);
 
   const existingLocal = findMatchingGuest(getLocalStoredGuests(), cleanName, cleanWhatsapp);
-  const targetId = existingLocal?.id || guestId;
+  const targetId = guestId;
 
   // 1. Salvar no Firestore PRIMEIRO (se configurado)
   if (isFirebaseConfigured && db) {
@@ -196,6 +191,7 @@ export async function createGuestRsvp(params: {
         attendees: finalAttendees,
         companions: status === 'confirmed' ? cleanCompanions : [],
         status,
+        createdAt: serverTimestamp(),
         ...(cleanNotes ? { notes: cleanNotes } : {}),
         confirmedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -236,7 +232,10 @@ export async function createGuestRsvp(params: {
 
   const list = getLocalStoredGuests();
   const existingIndex = list.findIndex(
-    (g) => g.id === targetId || (phoneKey && normalizePhoneId(g.whatsapp) === phoneKey) || normalizeGuestName(g.name) === normalizeGuestName(cleanName)
+    (g) => g.id === targetId || (
+      normalizeGuestName(g.name) === normalizeGuestName(cleanName) &&
+      normalizePhoneId(g.whatsapp) === phoneKey
+    )
   );
 
   if (existingIndex >= 0) {
@@ -276,8 +275,7 @@ export async function addGuest(params: {
     throw new Error('Informe o nome do convidado.');
   }
 
-  const phoneId = normalizePhoneId(whatsapp);
-  const guestDocId = phoneId || `guest-${Date.now()}`;
+  const guestDocId = makeGuestId(whatsapp, name);
 
   const newGuest: Guest = {
     id: guestDocId,
@@ -399,8 +397,7 @@ export async function importGuestsFromList(
     const maxComp = Number.isFinite(Number(item.maxCompanions)) ? Math.max(0, Number(item.maxCompanions)) : 1;
     const status: GuestStatus = item.status || 'pending';
     const attendees = status === 'confirmed' ? Math.max(1, Number(item.attendees || 1)) : 0;
-    const phoneId = normalizePhoneId(item.whatsapp);
-    const guestDocId = phoneId || `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const guestDocId = makeGuestId(item.whatsapp, item.name);
 
     const g: Guest = {
       id: guestDocId,
