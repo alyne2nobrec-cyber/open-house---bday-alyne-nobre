@@ -3,6 +3,7 @@ import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
 import { X, Copy, Check, Heart, ExternalLink, QrCode as PixIcon, AlertCircle, ShoppingBag, ShieldCheck } from 'lucide-react';
 import { Gift, EventSettings } from '../types';
+import { DEFAULT_SETTINGS } from '../data/defaultData';
 import { reserveGiftWithTransaction } from '../services/giftService';
 import { buildPixPayload } from '../utils/pix';
 
@@ -30,13 +31,16 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
   const [copiaEColaCopied, setCopiaEColaCopied] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
-  const activePixKey = (gift?.pixKey || '').trim() || settings?.pixKey || 'alyne2.nobre.c@gmail.com';
+  const giftPixKey = (gift?.pixKey || '').trim();
+  const activePixKey = giftPixKey && giftPixKey !== DEFAULT_SETTINGS.pixKey
+    ? giftPixKey
+    : settings?.pixKey || DEFAULT_SETTINGS.pixKey;
   const activePixKeyType = settings?.pixKeyType || 'E-mail';
   const activeReceiverName = settings?.pixReceiverName || 'Alyne Nobre';
   const activeBankName = settings?.pixBankName || '';
-  const activeBankLink = (gift?.pixBankLink || '').trim() || (settings?.pixBankLink || '').trim();
-  const activeCopiaECola = (gift?.pixCopiaECola || '').trim() || (settings?.pixCopiaECola || '').trim();
-  const activeOfficialQrImage = (gift?.pixQrCodeUrl || '').trim() || (settings?.pixQrCodeUrl || '').trim();
+  const activeBankLink = (settings?.pixBankLink || '').trim() || (gift?.pixBankLink || '').trim();
+  const activeCopiaECola = (settings?.pixCopiaECola || '').trim() || (gift?.pixCopiaECola || '').trim();
+  const activeOfficialQrImage = (settings?.pixQrCodeUrl || '').trim() || (gift?.pixQrCodeUrl || '').trim();
 
   useEffect(() => {
     if (!gift) return;
