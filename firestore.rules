@@ -86,7 +86,8 @@ service cloud.firestore {
 
     match /guests/{id} {
       allow create: if isValidGuestCreate();
-      allow read, update, delete: if isAdmin();
+      allow read: if true;
+      allow update, delete: if isAdmin();
     }
 
     match /eventStats/{doc} {
