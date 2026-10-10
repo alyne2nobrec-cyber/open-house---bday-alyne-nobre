@@ -169,25 +169,82 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     }
   }, [settings.eventDate]);
 
-  // Map guests to their reserved gifts
-  const guestReservationsMap = useMemo(() => {
-    const map = new Map<string, GiftReservation[]>();
-    reservations.forEach((r) => {
-      const gName = r.guestName.trim().toLowerCase();
-      const existing = map.get(gName) || [];
-      existing.push(r);
-      map.set(gName, existing);
+  // Helper to normalize names for loose comparison (removes accents, multiple spaces)
+  const normalizeText = (text?: string): string => {
+    if (!text) return '';
+    return text
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  // Helper to get raw phone digits stripped of any formatting and country code 55
+  const getPhoneSuffix = (phone?: string): string => {
+    if (!phone) return '';
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length >= 12 && digits.startsWith('55')) {
+      return digits.slice(2);
+    }
+    return digits;
+  };
+
+  // Helper to match all reservations belonging to a guest
+  const getReservationsForGuest = (guest: Guest): GiftReservation[] => {
+    const gNormName = normalizeText(guest.name);
+    const gPhoneSuffix = getPhoneSuffix(guest.whatsapp);
+    const gFirstName = gNormName.split(' ')[0] || '';
+
+    return reservations.filter((r) => {
+      // 1. Check exact or trimmed name match
+      const rNormName = normalizeText(r.guestName);
+      if (rNormName && gNormName && rNormName === gNormName) {
+        return true;
+      }
+
+      // 2. Check phone match (ignoring +55 prefix or formatting)
+      const rPhoneSuffix = getPhoneSuffix(r.guestWhatsapp);
+      if (
+        gPhoneSuffix.length >= 8 &&
+        rPhoneSuffix.length >= 8 &&
+        (gPhoneSuffix === rPhoneSuffix ||
+          gPhoneSuffix.endsWith(rPhoneSuffix) ||
+          rPhoneSuffix.endsWith(gPhoneSuffix))
+      ) {
+        return true;
+      }
+
+      // 3. Check name containment (e.g. "Lucas" matches "Lucas Ferreira", or "The" / "Thé" nickname matches full name)
+      if (gNormName.length >= 3 && rNormName.length >= 3) {
+        if (gNormName.includes(rNormName) || rNormName.includes(gNormName)) {
+          return true;
+        }
+      }
+
+      // 4. First name match if at least 3 characters and unique
+      if (gFirstName.length >= 3) {
+        const rFirstName = rNormName.split(' ')[0] || '';
+        if (rFirstName === gFirstName) {
+          // If first names match, check if phone partially matches or if no conflicting full name
+          if (rPhoneSuffix && gPhoneSuffix) {
+            return gPhoneSuffix.slice(-6) === rPhoneSuffix.slice(-6);
+          }
+          return true;
+        }
+      }
+
+      return false;
     });
-    return map;
-  }, [reservations]);
+  };
 
   // Generator of personalized message for a guest
   const generateMessageForGuest = (guest: Guest): string => {
     const rawName = guest.name.trim();
     const firstName = rawName.split(' ')[0] || rawName;
-    const reserved = guestReservationsMap.get(rawName.toLowerCase()) || [];
+    const reserved = getReservationsForGuest(guest);
     const giftsString = reserved.length > 0
-      ? reserved.map((r) => r.giftName).join(', ')
+      ? reserved.map((r) => `${r.giftName}${r.quantity > 1 ? ` (${r.quantity}x)` : ''}`).join(', ')
       : 'um presente super especial';
 
     let msg = templateText;
@@ -246,7 +303,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       if (statusFilter === 'pending' && g.status !== 'pending') return false;
       if (statusFilter === 'declined' && g.status !== 'declined') return false;
       if (statusFilter === 'with_gifts') {
-        const hasGifts = (guestReservationsMap.get(g.name.trim().toLowerCase()) || []).length > 0;
+        const hasGifts = getReservationsForGuest(g).length > 0;
         if (!hasGifts) return false;
       }
 
@@ -269,7 +326,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     phoneFilter,
     sendStatusFilter,
     sentIds,
-    guestReservationsMap,
+    reservations,
   ]);
 
   // Overall counts
@@ -766,7 +823,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
                 {filteredGuests.map((g) => {
                   const hasValidPhone = isValidWhatsappNumber(g.whatsapp);
                   const isSent = sentIds.includes(g.id);
-                  const reserved = guestReservationsMap.get(g.name.trim().toLowerCase()) || [];
+                  const reserved = getReservationsForGuest(g);
 
                   return (
                     <tr
@@ -863,16 +920,28 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
                       {/* Reserved gifts */}
                       <td className="py-3 px-4">
                         {reserved.length > 0 ? (
-                          <div className="flex flex-col gap-0.5">
+                          <div className="flex flex-col gap-1 max-w-[240px]">
                             {reserved.map((r) => (
-                              <span
+                              <div
                                 key={r.id}
-                                className="text-[11px] text-[#2D2A26] font-medium flex items-center gap-1 truncate max-w-[200px]"
-                                title={r.giftName}
+                                className="text-[11px] flex items-center gap-1.5 flex-wrap"
+                                title={`${r.giftName}${r.quantity > 1 ? ` (${r.quantity} cotas)` : ''}`}
                               >
-                                <GiftIcon className="w-3 h-3 text-[#C86D51] shrink-0" />
-                                {r.giftName}
-                              </span>
+                                <span className="font-medium text-[#2D2A26] flex items-center gap-1 truncate max-w-[170px]">
+                                  <GiftIcon className="w-3 h-3 text-[#C86D51] shrink-0" />
+                                  {r.giftName}
+                                </span>
+                                {r.quantity > 1 && (
+                                  <span className="text-[#A59E95] text-[10px]">({r.quantity}x)</span>
+                                )}
+                                <span
+                                  className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
+                                    r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {r.paid ? 'Pago' : 'Pendente'}
+                                </span>
+                              </div>
                             ))}
                           </div>
                         ) : (
