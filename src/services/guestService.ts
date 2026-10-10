@@ -13,7 +13,7 @@ import {
   setDoc,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
-import { Guest, GuestStatus } from '../types';
+import { GiftReservation, Guest, GuestStatus } from '../types';
 import { incrementConfirmedAttendees } from './eventStatsService';
 import { normalizePhoneId } from '../utils/phone';
 
@@ -139,19 +139,34 @@ export function subscribeGuests(
   );
 }
 
-export function getReservationsForGuest(guest: Pick<Guest, 'name' | 'whatsapp'>, reservations: Array<{ guestName: string; guestWhatsapp?: string }>): Array<{ guestName: string; guestWhatsapp?: string }> {
-  const normalizedGuestName = (guest.name || '').trim().toLowerCase();
-  const normalizedPhone = normalizePhoneId(guest.whatsapp);
+export function normalizeGuestName(name?: string): string {
+  return (name || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+export function getReservationsForGuest(
+  guest: Pick<Guest, 'name' | 'whatsapp'>,
+  reservations: GiftReservation[]
+): GiftReservation[] {
+  const guestName = normalizeGuestName(guest.name);
+  const guestPhone = normalizePhoneId(guest.whatsapp);
 
   return reservations.filter((reservation) => {
-    const reservationName = (reservation.guestName || '').trim().toLowerCase();
+    const reservationName = normalizeGuestName(reservation.guestName);
     const reservationPhone = normalizePhoneId(reservation.guestWhatsapp);
 
-    return (
-      reservationName === normalizedGuestName ||
-      (normalizedPhone && reservationPhone && normalizedPhone === reservationPhone) ||
-      (normalizedPhone && (reservation.guestWhatsapp || '').replace(/\D/g, '').includes(normalizedPhone))
-    );
+    if (!guestName && !guestPhone) return false;
+
+    if (guestPhone && reservationPhone && guestPhone === reservationPhone) return true;
+    if (guestName && reservationName && guestName === reservationName) return true;
+    if (guestName && reservationName && reservationName.includes(guestName)) return true;
+    if (guestPhone && reservationPhone && reservationPhone.includes(guestPhone)) return true;
+
+    return false;
   });
 }
 

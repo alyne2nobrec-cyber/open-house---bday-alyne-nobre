@@ -44,6 +44,7 @@ import {
   updateGuest,
   deleteGuest,
   importGuestsFromList,
+  getReservationsForGuest,
 } from '../../services/guestService';
 import { updateEventSettings } from '../../services/settingsService';
 import { scrapeProductFromUrl } from '../../utils/scraper';
@@ -159,13 +160,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     ];
 
     const rows = guests.map((g) => {
-      const gRes = reservations.filter(
-        (r) =>
-          r.guestName.toLowerCase().trim() === g.name.toLowerCase().trim() ||
-          (r.guestWhatsapp && g.whatsapp && r.guestWhatsapp.replace(/\D/g, '') === g.whatsapp.replace(/\D/g, ''))
-      );
+      const gRes = getReservationsForGuest(g, reservations).map((r) => ({
+        ...r,
+        giftName: reservations.find((item) => item.guestName === r.guestName && item.guestWhatsapp === r.guestWhatsapp)?.giftName || 'Presente',
+      }));
       const giftsSummary = gRes
-        .map((r) => `${r.giftName} (${r.quantity}x)${r.paid ? ' [PAGO]' : ' [PENDENTE]'}`)
+        .map((r) => `${r.guestName} -> ${r.giftName}`)
         .join('; ');
 
       return [
@@ -1537,9 +1537,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="p-4 font-mono text-[#68625B]">
                             {guest.whatsapp || <span className="text-[#A59E95] italic">Não informado</span>}
                           </td>
-                          <td className="p-4 text-[#68625B]">
+                                                   <td className="p-4 text-[#68625B]">
                             {guest.maxCompanions === 0 ? (
-                              <span className="text-stone-600 font-medium">Individual</span>
+                              <span className="text-stone-600 fontmedium">Individual</span>
                             ) : (
                               <span className="text-[#C86D51] font-medium">+ até {guest.maxCompanions} acomp.</span>
                             )}
@@ -1574,11 +1574,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <td className="p-4">
                             {(() => {
                               const cleanGPhone = guest.whatsapp?.replace(/\D/g, '') || '';
-                              const gRes = reservations.filter(
-                                (r) =>
-                                  r.guestName.toLowerCase().trim() === guest.name.toLowerCase().trim() ||
-                                  (cleanGPhone.length >= 8 && r.guestWhatsapp.replace(/\D/g, '').includes(cleanGPhone))
-                              );
+                              const gRes = getReservationsForGuest(guest, reservations);
                               if (gRes.length === 0) {
                                 return <span className="text-[#A59E95] text-[11px]">—</span>;
                               }
@@ -2503,7 +2499,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
                 Status
               </label>
               <select
@@ -2520,7 +2516,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
                 Valor Sugerido (R$ por cota ou total)
               </label>
               <input
@@ -2535,7 +2531,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
                 Quantidade Total de Cotas
               </label>
               <input
@@ -2551,7 +2547,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
 
           {/* Photo URL or Upload */}
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
               Foto do Presente
             </label>
             <div className="flex items-center gap-3">
@@ -2596,7 +2592,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
             </div>
 
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
                 Chave Pix Específica (opcional)
               </label>
               <input
