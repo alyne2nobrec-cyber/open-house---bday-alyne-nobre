@@ -468,7 +468,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Painel Administrativo
             </h1>
             <span className="text-[11px] text-[#7D756C]">
-              Open House & Chá de Casa Nova • Alyne Nobre
+              Open House & Bday • Alyne Nobre
             </span>
           </div>
         </div>

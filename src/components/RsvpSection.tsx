@@ -209,11 +209,11 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings }) => {
                 <p className="text-sm text-[#68625B] mt-2 max-w-md mx-auto leading-relaxed">
                   {submitted === 'confirmed' ? (
                     <>
-                      Obrigada por confirmar, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>! Mal posso esperar para brindar essa nova fase com você no meu apê novo.
+                      Obrigada por confirmar, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>! Mal posso esperar para comemorar essa nova fase com você.
                     </>
                   ) : (
                     <>
-                      Poxa, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>, vamos sentir sua falta! Mas obrigada pelo carinho de avisar. Sempre que quiser, as portas estarão abertas!
+                      Poxa, <strong className="text-[#2D2A26]">{submittedData?.name}</strong>, vamos sentir sua falta! Mas obrigada pelo carinho de avisar. Sempre que quiser etarei aqui por você!
                     </>
                   )}
                 </p>
@@ -408,7 +408,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings }) => {
                   rows={3}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Ex: Não como carne de porco / Mal posso esperar pra conhecer o apê novo e brindar com você!"
+                  placeholder="Ex: Não como carne de porco / Mal posso esperar pra conhecer o apê novo e comemorar com você!"
                   maxLength={500}
                   className="w-full p-3.5 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none transition-all resize-none"
                 />

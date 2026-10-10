@@ -87,7 +87,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             Área da Anfitriã
           </h3>
           <p className="text-xs text-[#68625B] mt-1">
-            Acesso exclusivo para a Alyne gerenciar o evento, presentes e convidados.
+            Meu cantinho novo também precisa de organização: aqui cuido do evento, da lista e dos convidados.
           </p>
         </div>
 

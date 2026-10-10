@@ -450,7 +450,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                     rows={2}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Escreva uma mensagem para aquecer o novo apê!"
+                    placeholder="Escreva o que quiser — vou adorar ler!"
                     className="w-full p-3 rounded-xl border border-[#EADBCE] bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 outline-none transition-all text-sm text-[#2D2A26] resize-none"
                   />
                 </div>
@@ -478,7 +478,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                     )}
                   </button>
                   <p className="text-[11px] text-[#7D756C] text-center mt-2.5">
-                    Não cobramos nada no site! É apenas um compromisso carinhoso para a Alyne saber quem vai dar o quê.
+                    Não cobramos nada no site! A reserva só ajuda a organizar a lista. O pagamento é feito diretamente pelo seu banco para o da Alyne, se você escolher uma opção via Pix.
                   </p>
                 </div>
               </form>

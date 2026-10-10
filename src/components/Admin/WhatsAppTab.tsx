@@ -85,34 +85,34 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   // 2. Templates definitions
   const defaultTemplates: Record<TemplateType, { title: string; defaultText: string }> = {
     rsvp_invite: {
-      title: 'Convite Oficial & RSVP',
+      title: 'Convite para comemorar',
       defaultText:
-        'Oi, {primeiro_nome}! Tudo bem? 🏠✨\n\nEstou muito feliz em te convidar para o meu Open House & Aniversário de Casa Nova! Vai ser um momento super especial e quero muito comemorar com você.\n\nPor favor, confirme sua presença pelo link abaixo:\n👉 {link_rsvp}\n\nConto com você! 💕',
+        'Oi, {primeiro_nome}! Tudo bem? 🏡❤️\n\nEstou começando uma fase nova e quero comemorar meu aniversário e meu cantinho novo perto de gente querida. Vou ficar muito feliz se você puder vir!\n\nQuando puder, me avisa por aqui:\n👉 {link_rsvp}\n\nUm beijo!',
     },
     rsvp_reminder: {
-      title: 'Lembrete de Confirmação (RSVP Pendente)',
+      title: 'Lembrete de confirmação',
       defaultText:
-        'Oi, {primeiro_nome}! Tudo bem por aí? 💖\n\nPassando só para te lembrar com muito carinho de confirmar sua presença no meu Open House! Estou organizando as comidinhas e bebidas e me ajuda muito saber se você vem.\n\nVocê pode confirmar rapidinho por aqui:\n👉 {link_rsvp}\n\nTe espero! ✨',
+        'Oi, {primeiro_nome}! Tudo bem? ❤️\n\nEstou organizando os detalhes do meu Open House e queria saber se você vai conseguir vir. Sem pressão, tá? É só pra eu conseguir me planejar direitinho.\n\nVocê consegue me avisar por aqui?\n👉 {link_rsvp}\n\nObrigada!',
     },
     event_details: {
-      title: 'Detalhes & Localização (Para Confirmados)',
+      title: 'Detalhes do encontro',
       defaultText:
-        'Oi, {primeiro_nome}! 🎉\n\nO nosso encontro está chegando! Nosso Open House será no dia {data}, a partir das {horario}.\n\n📍 Local: {local}\nEndereço: {endereco}\nComo chegar (Maps): {maps}\n\nQualquer dúvida é só me chamar. Até breve! 🥂',
+        'Oi, {primeiro_nome}! Nosso encontro está chegando 🏡❤️\n\nMeu Open House vai ser no dia {data}, a partir das {horario}.\n\n📍 {local}\n{endereco}\nComo chegar: {maps}\n\nSe tiver qualquer dúvida, me chama. Até lá!',
     },
     gift_registry: {
-      title: 'Lista de Presentes & Mimos',
+      title: 'Lista da casa nova',
       defaultText:
-        'Oi, {primeiro_nome}! Tudo bem? 💕\n\nAlgumas pessoas queridas me pediram sugestões de mimos e itens para a casa nova. Preparei uma listinha com muito carinho com opções e cotas Pix:\n👉 {link_presentes}\n\nSua presença já é o maior presente pra mim, mas se quiser dar uma olhadinha o link está aí! 🥰',
+        'Oi, {primeiro_nome}! ❤️\n\nAlgumas pessoas me perguntaram o que está faltando no meu cantinho, então deixei uma listinha com algumas ideias. Mas fica à vontade, viu? Sem pressão nenhuma — o que mais quero é comemorar com você!\n👉 {link_presentes}',
     },
     gift_thanks: {
-      title: 'Agradecimento pelo Presente Reservado',
+      title: 'Obrigada pelo carinho',
       defaultText:
-        'Oi, {primeiro_nome}! 🥺❤️\n\nVi que você me presenteou com "{presente}" para a casa nova! Fiquei muito emocionada e feliz com todo esse carinho. Muito obrigada de coração!\n\nMal posso esperar para te dar um abraço no dia {data}! ✨',
+        'Oi, {primeiro_nome}! ❤️\n\nVi que você escolheu "{presente}" pra minha casa nova. Muito obrigada pelo carinho e por fazer parte dessa conquista! Vou lembrar de você sempre que usar.\n\nEspero te dar um abraço no dia {data}!',
     },
     custom: {
-      title: 'Mensagem Personalizada Livre',
+      title: 'Mensagem livre',
       defaultText:
-        'Oi, {primeiro_nome}!\n\nEspero que esteja tudo bem com você!\n\nAcesse as novidades do nosso encontro: {link}\n\nUm beijo com carinho,\n{anfitriã}',
+        'Oi, {primeiro_nome}!\n\nQueria te contar uma novidade: estou começando uma fase nova e vou comemorar com pessoas queridas. Dá uma olhada por aqui: {link}\n\nUm beijo,\n{anfitriã}',
     },
   };
 
