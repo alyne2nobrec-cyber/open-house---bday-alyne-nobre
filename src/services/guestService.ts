@@ -2,7 +2,6 @@ import {
   collection,
   doc,
   addDoc,
-  updateDoc,
   deleteDoc,
   onSnapshot,
   query,
@@ -11,8 +10,12 @@ import {
   getDocs,
   writeBatch,
   setDoc,
+  updateDoc,
+  type DocumentData,
+  type QueryDocumentSnapshot,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
+import { auth } from '../lib/firebase';
 import { GiftReservation, Guest, GuestStatus } from '../types';
 import { incrementConfirmedAttendees } from './eventStatsService';
 import { normalizePhoneId } from '../utils/phone';
@@ -21,19 +24,156 @@ const GUESTS_COLLECTION = 'guests';
 const LOCAL_GUESTS_KEY = 'alyne_guests_cache_v2';
 
 let localGuestListeners: Array<(guests: Guest[]) => void> = [];
+let guestMigrationRunning = false;
 
 function makeGuestId(whatsapp?: string, name?: string): string {
   const phoneKey = normalizePhoneId(whatsapp);
   const safeName = normalizeGuestName(name).replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
-  return `guest-${safeName || 'anon'}-${phoneKey || 'no-phone'}`;
+  return phoneKey ? `guest-${phoneKey}` : `guest-${safeName || 'anon'}-no-phone`;
 }
 
 function findMatchingGuest(list: Guest[], name: string, whatsapp?: string): Guest | undefined {
   const normalizedName = normalizeGuestName(name);
   const phoneKey = normalizePhoneId(whatsapp);
-  return list.find((guest) =>
-    normalizeGuestName(guest.name) === normalizedName && normalizePhoneId(guest.whatsapp) === phoneKey
-  );
+  const matches = list.filter((guest) => {
+    const guestPhoneKey = normalizePhoneId(guest.whatsapp);
+    return phoneKey
+      ? guestPhoneKey === phoneKey
+      : !guestPhoneKey && normalizeGuestName(guest.name) === normalizedName;
+  });
+
+  return matches.sort((a, b) => getTimestampMillis(a.createdAt) - getTimestampMillis(b.createdAt))[0];
+}
+
+function getTimestampMillis(value: unknown): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (value && typeof value === 'object' && 'toMillis' in value && typeof value.toMillis === 'function') {
+    return value.toMillis();
+  }
+  return 0;
+}
+
+function canManageGuests(): boolean {
+  const email = auth?.currentUser?.email?.trim().toLowerCase();
+  const envAdmin = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
+  return Boolean(email && (
+    email === envAdmin ||
+    email === 'alyne.custodio@dux-company.com' ||
+    email === 'alyne2.nobre.c@gmail.com'
+  ));
+}
+
+function createGuestFromSnapshot(docSnap: QueryDocumentSnapshot<DocumentData>): Guest {
+  const data = docSnap.data();
+  return {
+    id: docSnap.id,
+    name: data.name || '',
+    whatsapp: data.whatsapp || '',
+    maxCompanions: Number(data.maxCompanions ?? 1),
+    attendees: Number(data.attendees || 0),
+    companions: Array.isArray(data.companions) ? data.companions : [],
+    status: (data.status as GuestStatus) || 'pending',
+    notes: data.notes || '',
+    confirmedAt: data.confirmedAt?.toDate ? data.confirmedAt.toDate().toISOString() : data.confirmedAt,
+    createdAt: data.createdAt?.toDate ? data.createdAt.toDate().toISOString() : data.createdAt,
+    updatedAt: data.updatedAt?.toDate ? data.updatedAt.toDate().toISOString() : data.updatedAt,
+  };
+}
+
+function consolidateLocalGuests(guests: Guest[]): Guest[] {
+  const result: Guest[] = [];
+  const phoneIndexes = new Map<string, number>();
+
+  for (const guest of guests) {
+    const phoneKey = normalizePhoneId(guest.whatsapp);
+    if (!phoneKey) {
+      result.push(guest);
+      continue;
+    }
+
+    const existingIndex = phoneIndexes.get(phoneKey);
+    if (existingIndex === undefined) {
+      phoneIndexes.set(phoneKey, result.length);
+      result.push({ ...guest, id: `guest-${phoneKey}` });
+      continue;
+    }
+
+    const existing = result[existingIndex];
+    const guestIsOlder = getTimestampMillis(guest.createdAt) < getTimestampMillis(existing.createdAt);
+    const latestState = getTimestampMillis(guest.updatedAt ?? guest.confirmedAt) >
+      getTimestampMillis(existing.updatedAt ?? existing.confirmedAt) ? guest : existing;
+    result[existingIndex] = {
+      ...(guestIsOlder ? guest : existing),
+      id: `guest-${phoneKey}`,
+      attendees: latestState.attendees,
+      companions: latestState.companions,
+      status: latestState.status,
+      notes: latestState.notes,
+      confirmedAt: latestState.confirmedAt,
+      updatedAt: latestState.updatedAt,
+    };
+  }
+
+  return result;
+}
+
+async function migrateGuestPhoneIds(
+  docs: QueryDocumentSnapshot<DocumentData>[]
+): Promise<void> {
+  if (!db) return;
+
+  const groups = new Map<string, QueryDocumentSnapshot<DocumentData>[]>();
+  for (const guestDoc of docs) {
+    const phoneKey = normalizePhoneId(guestDoc.data().whatsapp);
+    if (!phoneKey) continue;
+    const group = groups.get(phoneKey) || [];
+    group.push(guestDoc);
+    groups.set(phoneKey, group);
+  }
+
+  for (const [phoneKey, group] of groups) {
+    const canonicalId = `guest-${phoneKey}`;
+    if (group.length === 1 && group[0].id === canonicalId) continue;
+
+    const oldestFirst = [...group].sort(
+      (a, b) => getTimestampMillis(a.data().createdAt) - getTimestampMillis(b.data().createdAt)
+    );
+    const newestStateFirst = [...group].sort(
+      (a, b) =>
+        getTimestampMillis(b.data().updatedAt ?? b.data().confirmedAt ?? b.data().createdAt) -
+        getTimestampMillis(a.data().updatedAt ?? a.data().confirmedAt ?? a.data().createdAt)
+    );
+    const firstData = oldestFirst[0].data();
+    const latestData = newestStateFirst[0].data();
+    const canonicalRef = doc(db, GUESTS_COLLECTION, canonicalId);
+
+    await setDoc(canonicalRef, {
+      ...firstData,
+      name: firstData.name || latestData.name || '',
+      whatsapp: firstData.whatsapp || latestData.whatsapp || '',
+      maxCompanions: Number(firstData.maxCompanions ?? 1),
+      attendees: Number(latestData.attendees ?? firstData.attendees ?? 0),
+      companions: Array.isArray(latestData.companions)
+        ? latestData.companions
+        : Array.isArray(firstData.companions) ? firstData.companions : [],
+      status: latestData.status || firstData.status || 'pending',
+      notes: latestData.notes || firstData.notes || '',
+      confirmedAt: latestData.confirmedAt || firstData.confirmedAt || null,
+      createdAt: firstData.createdAt || serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
+    const duplicateDocs = oldestFirst.filter((guestDoc) => guestDoc.id !== canonicalId);
+    for (let offset = 0; offset < duplicateDocs.length; offset += 450) {
+      const batch = writeBatch(db);
+      duplicateDocs.slice(offset, offset + 450).forEach((guestDoc) => batch.delete(guestDoc.ref));
+      await batch.commit();
+    }
+  }
 }
 
 export function getLocalStoredGuests(): Guest[] {
@@ -70,7 +210,14 @@ export function subscribeGuests(
 ) {
   if (!isFirebaseConfigured || !db) {
     localGuestListeners.push(callback);
-    callback(getLocalStoredGuests());
+    const storedGuests = getLocalStoredGuests();
+    const consolidatedGuests = consolidateLocalGuests(storedGuests);
+    if (consolidatedGuests.length !== storedGuests.length || consolidatedGuests.some(
+      (guest, index) => guest.id !== storedGuests[index]?.id
+    )) {
+      saveLocalGuests(consolidatedGuests);
+    }
+    callback(consolidatedGuests);
     return () => {
       localGuestListeners = localGuestListeners.filter((fn) => fn !== callback);
     };
@@ -87,24 +234,25 @@ export function subscribeGuests(
         return;
       }
 
-      const list: Guest[] = snapshot.docs.map((docSnap) => {
-        const d = docSnap.data();
-        return {
-          id: docSnap.id,
-          name: d.name || '',
-          whatsapp: d.whatsapp || '',
-          maxCompanions: Number(d.maxCompanions ?? 1),
-          attendees: Number(d.attendees || 0),
-          companions: Array.isArray(d.companions) ? d.companions : [],
-          status: (d.status as GuestStatus) || 'pending',
-          notes: d.notes || '',
-          confirmedAt: d.confirmedAt?.toDate ? d.confirmedAt.toDate().toISOString() : d.confirmedAt,
-          createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
-          updatedAt: d.updatedAt?.toDate ? d.updatedAt.toDate().toISOString() : d.updatedAt,
-        };
-      });
+      const list: Guest[] = snapshot.docs.map(createGuestFromSnapshot);
 
       callback(list);
+
+      const hasLegacyPhoneIds = snapshot.docs.some((guestDoc) => {
+        const phoneKey = normalizePhoneId(guestDoc.data().whatsapp);
+        return phoneKey && guestDoc.id !== `guest-${phoneKey}`;
+      });
+      if (canManageGuests() && hasLegacyPhoneIds && !guestMigrationRunning) {
+        guestMigrationRunning = true;
+        void migrateGuestPhoneIds(snapshot.docs)
+          .catch((error: unknown) => {
+            console.error('Could not consolidate guest phone records:', error);
+            onError?.(error instanceof Error ? error : new Error('Não foi possível consolidar os convidados duplicados.'));
+          })
+          .finally(() => {
+            guestMigrationRunning = false;
+          });
+      }
     },
     (err) => {
       console.warn('Firestore guests subscription error:', err);
@@ -186,18 +334,27 @@ export async function createGuestRsvp(params: {
     try {
       const firestoreGuestDoc = doc(db, GUESTS_COLLECTION, targetId);
       const payload: Record<string, unknown> = {
-        name: cleanName,
-        whatsapp: cleanWhatsapp,
         attendees: finalAttendees,
         companions: status === 'confirmed' ? cleanCompanions : [],
         status,
-        createdAt: serverTimestamp(),
         ...(cleanNotes ? { notes: cleanNotes } : {}),
         confirmedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      await setDoc(firestoreGuestDoc, payload, { merge: true });
-    } catch (e: any) {
+      try {
+        await updateDoc(firestoreGuestDoc, payload);
+      } catch (error: unknown) {
+        const isMissingDocument = error && typeof error === 'object' &&
+          'code' in error && error.code === 'not-found';
+        if (!isMissingDocument) throw error;
+        await setDoc(firestoreGuestDoc, {
+          ...payload,
+          name: cleanName,
+          whatsapp: cleanWhatsapp,
+          createdAt: serverTimestamp(),
+        });
+      }
+    } catch (e: unknown) {
       console.error('Firebase guest creation error:', e);
       throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
     }
@@ -218,32 +375,39 @@ export async function createGuestRsvp(params: {
   // 3. Atualizar cache local
   const guestData: Guest = {
     id: targetId,
-    name: cleanName,
-    whatsapp: cleanWhatsapp,
+    name: existingLocal?.name || cleanName,
+    whatsapp: existingLocal?.whatsapp || cleanWhatsapp,
     maxCompanions: existingLocal?.maxCompanions ?? Math.max(1, cleanCompanions.length),
     attendees: finalAttendees,
     companions: status === 'confirmed' ? cleanCompanions : [],
     status,
-    notes: cleanNotes,
+    notes: cleanNotes || existingLocal?.notes || '',
     confirmedAt: new Date().toISOString(),
     createdAt: existingLocal?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
   const list = getLocalStoredGuests();
-  const existingIndex = list.findIndex(
-    (g) => g.id === targetId || (
-      normalizeGuestName(g.name) === normalizeGuestName(cleanName) &&
-      normalizePhoneId(g.whatsapp) === phoneKey
-    )
-  );
-
-  if (existingIndex >= 0) {
-    list[existingIndex] = { ...list[existingIndex], ...guestData };
-  } else {
-    list.unshift(guestData);
-  }
-  saveLocalGuests(list);
+  const matchingIndexes = list
+    .map((guest, index) => ({ guest, index }))
+    .filter(({ guest }) => guest.id === targetId || (
+      phoneKey
+        ? normalizePhoneId(guest.whatsapp) === phoneKey
+        : normalizeGuestName(guest.name) === normalizeGuestName(cleanName) &&
+          !normalizePhoneId(guest.whatsapp)
+    ));
+  const preferredLocal = findMatchingGuest(list, cleanName, cleanWhatsapp);
+  const retainedGuest = {
+    ...guestData,
+    name: preferredLocal?.name || guestData.name,
+    whatsapp: preferredLocal?.whatsapp || guestData.whatsapp,
+    maxCompanions: preferredLocal?.maxCompanions ?? guestData.maxCompanions,
+    createdAt: preferredLocal?.createdAt || guestData.createdAt,
+  };
+  const insertionIndex = matchingIndexes.length ? matchingIndexes[0].index : 0;
+  const filteredList = list.filter((_, index) => !matchingIndexes.some((match) => match.index === index));
+  filteredList.splice(Math.min(insertionIndex, filteredList.length), 0, retainedGuest);
+  saveLocalGuests(filteredList);
   notifyGuestListeners();
 
   return targetId;
@@ -273,6 +437,19 @@ export async function addGuest(params: {
 
   if (!name.trim()) {
     throw new Error('Informe o nome do convidado.');
+  }
+
+  const localMatch = findMatchingGuest(getLocalStoredGuests(), name, whatsapp);
+  if (localMatch) return localMatch.id;
+
+  if (isFirebaseConfigured && db) {
+    const remoteSnapshot = await getDocs(collection(db, GUESTS_COLLECTION));
+    const remoteMatch = findMatchingGuest(
+      remoteSnapshot.docs.map(createGuestFromSnapshot),
+      name,
+      whatsapp
+    );
+    if (remoteMatch) return remoteMatch.id;
   }
 
   const guestDocId = makeGuestId(whatsapp, name);
@@ -389,8 +566,16 @@ export async function importGuestsFromList(
   }>,
   mode: 'append' | 'replace' = 'append'
 ): Promise<number> {
-  const current = mode === 'replace' ? [] : getLocalStoredGuests();
+  let current = mode === 'replace' ? [] : getLocalStoredGuests();
+  if (mode === 'append' && isFirebaseConfigured && db) {
+    const remoteSnapshot = await getDocs(collection(db, GUESTS_COLLECTION));
+    current = consolidateLocalGuests([
+      ...current,
+      ...remoteSnapshot.docs.map(createGuestFromSnapshot),
+    ]);
+  }
   const newItems: Guest[] = [];
+  const seenGuests = [...current];
 
   for (const item of guestsList) {
     if (!item.name || !item.name.trim()) continue;
@@ -410,7 +595,9 @@ export async function importGuestsFromList(
       notes: (item.notes?.trim() || '').slice(0, 500),
       createdAt: new Date().toISOString(),
     };
+    if (findMatchingGuest(seenGuests, g.name, g.whatsapp)) continue;
     newItems.push(g);
+    seenGuests.push(g);
   }
 
   const combined = mode === 'replace' ? newItems : [...newItems, ...current];
