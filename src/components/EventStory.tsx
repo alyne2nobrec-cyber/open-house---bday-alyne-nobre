@@ -46,7 +46,7 @@ export const EventStory: React.FC = () => {
             </div>
             <h3 className="font-serif text-lg font-semibold text-[#2D2A26] mb-2">2. Chá de Casa Nova</h3>
             <p className="text-sm text-[#68625B] leading-relaxed">
-              Aquela forcinha marota para equipar a cozinha, a sala e não faltar taça de vinho pro rolê.
+              Aquela forcinha marota para equipar a cozinha, a sala e não faltar um copo para tomar um suquinho.
             </p>
           </div>
 
@@ -56,7 +56,7 @@ export const EventStory: React.FC = () => {
             </div>
             <h3 className="font-serif text-lg font-semibold text-[#2D2A26] mb-2">3. Open House</h3>
             <p className="text-sm text-[#68625B] leading-relaxed">
-              Portas abertas, comidinhas gostosas, drinks e a inauguração oficial das melhores conversas.
+              Portas abertas, comidinhas gostosas e a inauguração oficial das melhores conversas.
             </p>
           </div>
         </div>

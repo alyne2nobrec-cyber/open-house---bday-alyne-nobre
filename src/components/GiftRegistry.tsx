@@ -76,7 +76,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           </h2>
 
           <p className="text-base sm:text-lg text-[#68625B] leading-relaxed">
-            Não existe inauguração de casa nova sem aquela ajudinha básica para transformar quatro paredes em um lar. Então preparei uma lista flexível de coisas que vão me ajudar nessa missão — de panelas a cotas de sobrevivência!
+            Não existe inauguração de casa nova sem aquela ajudinha básica para transformar quatro paredes em um lar. Então preparei uma lista flexível de coisas que vão me ajudar nessa missão — de panelas a cotas de sobrevivência! Se quiser me presentear, fique à vontade para escolher algo da lista — e sem pressão, viu? O carinho de vocês já significa muito pra mim ❤️
           </p>
         </div>
 
@@ -91,7 +91,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Buscar presente (ex: geladeira, sofá, taças...)"
+                placeholder="Buscar presente (ex: geladeira, sofá, copos...)"
                 className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 text-sm text-[#2D2A26] placeholder-[#8E867E] outline-none transition-all shadow-2xs"
               />
             </div>

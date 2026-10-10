@@ -117,7 +117,7 @@ export const Hero: React.FC<HeroProps> = ({ settings, onScrollTo }) => {
               </div>
 
               {eventHasPassed ? (
-                <p className="font-serif text-xl text-[#2D2A26]">O evento já aconteceu — obrigada por celebrar com a gente! ❤️</p>
+                <p className="font-serif text-xl text-[#2D2A26]">O evento já aconteceu — . Obrigada por fazer parte desse dia comigo!! ❤️</p>
               ) : (
                 <div className="grid grid-cols-4 gap-2 sm:gap-3 text-center">
                   <div className="bg-[#FAF8F5] rounded-xl py-2 px-1 border border-[#F0E6DE]">

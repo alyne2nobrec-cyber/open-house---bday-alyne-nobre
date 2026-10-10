@@ -4,7 +4,7 @@ import { Share2, MessageCircle, Copy, Check } from 'lucide-react';
 export const ShareBar: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
-  const shareText = "Você recebeu um convite muito especial! 🏠❤️ Vem comemorar comigo meu aniversário + minha casa nova!";
+  const shareText = "Quero comemorar meu aniversário e essa fase nova com você! 🏡❤️";
   const shareUrl = window.location.href;
 
   const handleShare = async () => {
@@ -39,10 +39,10 @@ export const ShareBar: React.FC = () => {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
         
         <h3 className="font-serif text-2xl font-medium text-[#2D2A26] mb-2">
-          Compartilhe com quem vai comemorar com a gente!
+          Tem alguém querido que também vai gostar de vir?
         </h3>
         <p className="text-sm text-[#68625B] mb-6">
-          Envie o convite diretamente no grupo da turma ou no privado.
+          Pode encaminhar o convite para essa pessoa. Vou adorar comemorar com vocês!
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-3">

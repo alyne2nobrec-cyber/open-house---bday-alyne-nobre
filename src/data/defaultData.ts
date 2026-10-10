@@ -16,9 +16,9 @@ export const DEFAULT_SETTINGS: EventSettings = {
   locationCity: "São Paulo, SP",
   locationNotes: "Interfone 82. Vagas para visitantes na rua ao lado ou portaria para descer.",
   googleMapsUrl: "https://maps.google.com/?q=S%C3%A3o+Paulo",
-  heroHeading: "Minha casa nova finalmente saiu do Pinterest!",
-  heroSubheading: "Esse ano a comemoração é diferente: aniversário + casa nova + a desculpa perfeita para reunir quem eu amo.",
-  quote: "Vem comemorar comigo e, se quiser, ajuda a montar minha casa nova 😂",
+  heroHeading: "Meu cantinho, minhas regras e Deus cuidando de cada detalhe. 🏡🤎",
+  heroSubheading: "Estou saindo da casa dos meus pais e começando uma fase nova, com muita alegria, gratidão a Deus e aquele frio na barriga. Quero comemorar meu aniversário e essa conquista com vocês!",
+  quote: "Um sonho saindo do papel — e uma lista de coisas pra montar 😂",
   mainImageUrl: alynePortrait,
   pixKey: "alyne2.nobre.c@gmail.com",
   pixKeyType: "E-mail",
@@ -37,8 +37,8 @@ export const DEFAULT_SETTINGS: EventSettings = {
 
 export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
   {
-    name: "Uma ajudinha para a 1ª parcela da geladeira 🥹",
-    description: "Porque água gelada e sobremesas em segurança são essenciais para a dignidade humana.",
+    name: "Uma força para a geladeira 🥹",
+    description: "Água gelada e sobremesa à mão: a vida adulta também merece esses pequenos luxos.",
     category: "cozinha",
     imageUrl: kitchenDining,
     type: "shares",
@@ -50,8 +50,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Ajude a colocar um sofá nessa sala 😂",
-    description: "Para você não ter que sentar no chão quando vier me visitar e fazer plantão de fofoca.",
+    name: "Uma força para o sofá 😂",
+    description: "Pra gente sentar, conversar e colocar o papo em dia quando você vier me visitar.",
     category: "sala",
     imageUrl: modernLivingRoom,
     type: "shares",
@@ -63,8 +63,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Cadeira para visitas ilustres",
-    description: "Garante seu assento VIP reservado com o seu nome gravado mentalmente nele.",
+    name: "Uma cadeira para receber vocês",
+    description: "Porque visita querida merece um lugar confortável pra sentar e ficar à vontade.",
     category: "sala",
     imageUrl: readingNook,
     type: "shares",
@@ -76,8 +76,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Air Fryer que salva vidas e jantares rápidos",
-    description: "Alimento frito com ar e amor, zero bagunça na cozinha nova.",
+    name: "Air Fryer para os jantares da vida adulta",
+    description: "Pra deixar os jantares do dia a dia mais práticos — e a cozinha em paz.",
     category: "cozinha",
     imageUrl: kitchenDining,
     type: "external",
@@ -89,8 +89,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "sold_out"
   },
   {
-    name: "Cafeteira Nespresso (para café de boas-vindas)",
-    description: "A promessa é que todo convidado ganha um expresso cremoso na xícara bonita.",
+    name: "Cafeteira para receber vocês",
+    description: "Um cafezinho sempre cai bem quando a gente se reúne.",
     category: "cozinha",
     imageUrl: kitchenDining,
     type: "shares",
@@ -102,8 +102,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Jogo de Taças de Cristal para brindes",
-    description: "Para brindarmos a vida nova, o aniversário e o fim dos perrengues de mudança!",
+    name: "Jogo de taças para os brindes",
+    description: "Pra brindar o aniversário, essa nova fase e os bons encontros que ainda vêm por aí.",
     category: "cozinha",
     imageUrl: modernLivingRoom,
     type: "product",
@@ -114,8 +114,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Lixeira com sensor chique (para parecer rica)",
-    description: "Aquela que abre sozinha sem você tocar. O auge do luxo da mulher independente.",
+    name: "Lixeira com sensor (um luxo da vida adulta)",
+    description: "Ela abre sozinha. Eu ainda estou aprendendo a lidar com as responsabilidades 😂",
     category: "cozinha",
     imageUrl: kitchenDining,
     type: "product",
@@ -126,8 +126,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Edredom abraço quentinho 400 fios",
-    description: "Dormir nas nuvens depois de passar o dia arrumando caixas de mudança.",
+    name: "Edredom bem quentinho",
+    description: "Conforto merecido depois de um dia resolvendo as coisas da casa.",
     category: "quarto",
     imageUrl: readingNook,
     type: "shares",
@@ -138,8 +138,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Kit de Toalhas macias para o lavabo",
-    description: "Toalhas que secam de verdade e deixam o banheiro com cara de spa Pinterest.",
+    name: "Kit de toalhas macias",
+    description: "Um item daqueles que a gente só percebe que precisa quando vai morar sozinha.",
     category: "banheiro",
     imageUrl: modernLivingRoom,
     type: "product",
@@ -150,8 +150,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Planta de respeito para a sala (Costela de Adão)",
-    description: "Para dar aquele toque 'urban jungle' e oxigenar os dias de home office.",
+    name: "Uma planta para a sala",
+    description: "Um verdinho pra deixar o cantinho ainda mais aconchegante.",
     category: "sala",
     imageUrl: modernLivingRoom,
     type: "product",
@@ -162,8 +162,8 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Cota Livre: 'Gaste com o que você quiser!' 💚",
-    description: "Qualquer valor ajuda a pagar os 500 parafusos, buchas e imprevistos de quem acabou de se mudar!",
+    name: "Uma ajudinha para o que estiver faltando 💚",
+    description: "Toda ajuda é bem-vinda nessa missão de equipar a casa — até para os parafusos que sempre somem 😂",
     category: "pix",
     imageUrl: alynePortrait,
     type: "pix",
@@ -175,12 +175,12 @@ export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [
     status: "available"
   },
   {
-    name: "Barril de Chopp para o nosso Open House 🍻",
-    description: "Contribuição oficial para garantir que ninguém saia da festa com sede!",
+    name: "Um IceTea para o nosso Open House 🥤",
+    description: "Pra gente tomar junto e aproveitar esse dia tão especial.",
     category: "pix",
     imageUrl: kitchenDining,
     type: "shares",
-    price: 85,
+    price: 10,
     totalQuantity: 10,
     availableQuantity: 6,
     reservedQuantity: 4,
@@ -355,5 +355,4 @@ export const INITIAL_RESERVATIONS: GiftReservation[] = [
     createdAt: "2026-10-02T13:30:00.000Z",
   }
 ];
-
 
