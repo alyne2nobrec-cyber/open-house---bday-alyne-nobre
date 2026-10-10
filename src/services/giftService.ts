@@ -14,8 +14,12 @@ import {
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { auth } from '../lib/firebase';
-import { Gift, GiftReservation } from '../types';
+import { Gift, GiftCategory, GiftReservation } from '../types';
 import { INITIAL_GIFTS, INITIAL_RESERVATIONS } from '../data/defaultData';
+import alynePortrait from '../assets/images/alyne_portrait_1790969104126.jpg';
+import modernLivingRoom from '../assets/images/modern_living_room_1790969114799.jpg';
+import kitchenDining from '../assets/images/kitchen_dining_bar_1790969125087.jpg';
+import readingNook from '../assets/images/aesthetic_reading_nook_1790969135611.jpg';
 
 const GIFTS_COLLECTION = 'gifts';
 const RESERVATIONS_COLLECTION = 'giftReservations';
@@ -27,6 +31,44 @@ const LOCAL_RESERVATIONS_KEY = 'alyne_reservations_cache_v2';
 
 let localGiftListeners: Array<(gifts: Gift[]) => void> = [];
 let localReservationListeners: Array<(reservations: GiftReservation[]) => void> = [];
+
+const GIFT_IMAGE_FALLBACKS: Partial<Record<GiftCategory, string>> = {
+  casa: modernLivingRoom,
+  cozinha: kitchenDining,
+  sala: modernLivingRoom,
+  quarto: readingNook,
+  banheiro: modernLivingRoom,
+  pix: alynePortrait,
+  outros: modernLivingRoom,
+};
+
+const BUNDLED_IMAGE_PATHS = [
+  { filename: 'alyne_portrait_1790969104126', url: alynePortrait },
+  { filename: 'modern_living_room_1790969114799', url: modernLivingRoom },
+  { filename: 'kitchen_dining_bar_1790969125087', url: kitchenDining },
+  { filename: 'aesthetic_reading_nook_1790969135611', url: readingNook },
+];
+
+function resolveGiftImage(imageUrl: string | undefined, category: GiftCategory): string {
+  const fallback = GIFT_IMAGE_FALLBACKS[category] || modernLivingRoom;
+  const trimmedUrl = imageUrl?.trim();
+
+  if (!trimmedUrl) return fallback;
+
+  let imagePath = '';
+  try {
+    imagePath = new URL(trimmedUrl, 'https://assets.invalid').pathname;
+  } catch {
+    return trimmedUrl;
+  }
+
+  if (imagePath.startsWith('/src/assets/')) {
+    const bundledImage = BUNDLED_IMAGE_PATHS.find((image) => imagePath.includes(image.filename));
+    return bundledImage?.url || fallback;
+  }
+
+  return trimmedUrl;
+}
 
 export function getLocalStoredReservations(): GiftReservation[] {
   try {
@@ -104,6 +146,7 @@ function getLocalMergedGifts(): Gift[] {
     .map((g) => {
       const override = overrides[g.id] || {};
       const merged = { ...g, ...override };
+      merged.imageUrl = resolveGiftImage(merged.imageUrl, merged.category);
       const reserved =
         reservedCounts[merged.id] !== undefined
           ? reservedCounts[merged.id]
@@ -177,7 +220,7 @@ export function subscribeGifts(
           name: data.name || '',
           description: data.description || '',
           category: data.category || 'outros',
-          imageUrl: data.imageUrl || '',
+          imageUrl: resolveGiftImage(data.imageUrl, data.category || 'outros'),
           type: data.type || 'product',
           price: Number(data.price || 0),
           totalQuantity: Number(data.totalQuantity || 1),
