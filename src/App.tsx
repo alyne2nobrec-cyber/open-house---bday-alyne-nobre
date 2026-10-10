@@ -26,10 +26,15 @@ const ADMIN_ALLOWED_EMAILS = [
   'alyne2.nobre.c@gmail.com',
 ];
 
+export function normalizeAdminEmail(value?: string | null): string {
+  return (value || '').trim().replace(/^['"]+|['"]+$/g, '').toLowerCase();
+}
+
 export function isAdminEmail(email?: string | null): boolean {
-  const normalized = (email || '').trim().toLowerCase();
-  const envAdmin = (import.meta.env.VITE_ADMIN_EMAIL || '').trim().toLowerCase();
-  return Boolean(normalized && (normalized === envAdmin || ADMIN_ALLOWED_EMAILS.includes(normalized)));
+  const normalized = normalizeAdminEmail(email);
+  const envAdmin = normalizeAdminEmail(import.meta.env.VITE_ADMIN_EMAIL);
+  const allowed = new Set([envAdmin, ...ADMIN_ALLOWED_EMAILS]);
+  return Boolean(normalized && allowed.has(normalized));
 }
 
 export default function App() {
