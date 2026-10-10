@@ -66,13 +66,15 @@ export function formatPhoneDisplay(phone: string): string {
 export function normalizePhoneId(phone?: string | null): string | null {
   if (!phone) return null;
   const digits = phone.replace(/\D/g, '');
-  if (!digits || digits === '00000000' || /^\d$/.test(digits) || digits === '0000000000' || /^0+$/.test(digits)) {
+  if (!digits || digits.length < 8 || /^0+$/.test(digits) || /^(\d)\1+$/.test(digits)) {
     return null;
   }
 
+  // Remove country code 55 if phone has 12 or 13 digits (e.g. 5511987654321 -> 11987654321)
   const normalized = digits.startsWith('55') && digits.length > 11 ? digits.slice(2) : digits;
   const last11 = normalized.length > 11 ? normalized.slice(-11) : normalized;
-  if (!last11 || /^\d$/.test(last11) || /^0+$/.test(last11)) {
+
+  if (!last11 || last11.length < 8 || /^0+$/.test(last11) || /^(\d)\1+$/.test(last11)) {
     return null;
   }
 

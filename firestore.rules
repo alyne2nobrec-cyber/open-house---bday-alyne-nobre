@@ -12,7 +12,7 @@ service cloud.firestore {
       );
     }
 
-    function isValidGuestCreate() {
+    function isValidGuestPayload() {
       let data = request.resource.data;
       return data.name is string
         && data.name.size() >= 1
@@ -25,7 +25,7 @@ service cloud.firestore {
         && data.attendees <= 10
         && data.companions is list
         && data.companions.size() <= 9
-        && data.status in ['confirmed', 'declined']
+        && data.status in ['confirmed', 'declined', 'pending']
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
     }
 
@@ -85,9 +85,10 @@ service cloud.firestore {
     }
 
     match /guests/{id} {
-      allow create: if isValidGuestCreate();
-      allow read: if true;
-      allow update, delete: if isAdmin();
+      allow read: if isAdmin();
+      allow create: if isAdmin() || isValidGuestPayload();
+      allow update: if isAdmin() || isValidGuestPayload();
+      allow delete: if isAdmin();
     }
 
     match /eventStats/{doc} {

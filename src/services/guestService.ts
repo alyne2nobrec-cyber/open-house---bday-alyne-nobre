@@ -22,10 +22,10 @@ const LOCAL_GUESTS_KEY = 'alyne_guests_cache_v2';
 
 let localGuestListeners: Array<(guests: Guest[]) => void> = [];
 
-function makeGuestId(name: string, whatsapp?: string): string {
+function makeGuestId(whatsapp?: string, name?: string): string {
   const phoneKey = normalizePhoneId(whatsapp);
-  if (phoneKey) return `guest-${phoneKey}`;
-  const safeName = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (phoneKey) return phoneKey;
+  const safeName = (name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return `guest-${safeName || 'anon'}-${Date.now()}`;
 }
 
@@ -39,26 +39,6 @@ function findMatchingGuest(list: Guest[], name: string, whatsapp?: string): Gues
   }
 
   return list.find((guest) => (guest.name || '').trim().toLowerCase() === normalizedName);
-}
-
-async function findMatchingGuestInFirestore(name: string, whatsapp?: string): Promise<{ id: string; data: any } | undefined> {
-  if (!isFirebaseConfigured || !db) return undefined;
-
-  const phoneKey = normalizePhoneId(whatsapp);
-  const normalizedName = name.trim().toLowerCase();
-  const snapshot = await getDocs(collection(db, GUESTS_COLLECTION));
-
-  for (const docSnap of snapshot.docs) {
-    const data = docSnap.data();
-    if (phoneKey && normalizePhoneId(data.whatsapp) === phoneKey) {
-      return { id: docSnap.id, data };
-    }
-    if ((data.name || '').trim().toLowerCase() === normalizedName) {
-      return { id: docSnap.id, data };
-    }
-  }
-
-  return undefined;
 }
 
 export function getLocalStoredGuests(): Guest[] {
@@ -200,51 +180,36 @@ export async function createGuestRsvp(params: {
   }
 
   const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(10, attendees)) : 0;
-  const guestId = makeGuestId(cleanName, cleanWhatsapp);
+  const phoneKey = normalizePhoneId(cleanWhatsapp);
+  const guestId = phoneKey || makeGuestId(cleanWhatsapp, cleanName);
+
   const existingLocal = findMatchingGuest(getLocalStoredGuests(), cleanName, cleanWhatsapp);
-  const existingRemote = await findMatchingGuestInFirestore(cleanName, cleanWhatsapp);
-  const existingGuest = existingLocal || (existingRemote ? {
-    id: existingRemote.id,
-    name: cleanName,
-    whatsapp: cleanWhatsapp,
-    maxCompanions: cleanCompanions.length,
-    attendees: Number(existingRemote.data?.attendees || 0),
-    companions: Array.isArray(existingRemote.data?.companions) ? existingRemote.data.companions : [],
-    status: existingRemote.data?.status || 'pending',
-    notes: existingRemote.data?.notes || '',
-    confirmedAt: existingRemote.data?.confirmedAt,
-    createdAt: existingRemote.data?.createdAt,
-  } as Guest : undefined);
+  const targetId = existingLocal?.id || guestId;
 
-  const guestData: Guest = {
-    id: existingGuest?.id || guestId,
-    name: cleanName,
-    whatsapp: cleanWhatsapp,
-    maxCompanions: cleanCompanions.length,
-    attendees: finalAttendees,
-    companions: status === 'confirmed' ? cleanCompanions : [],
-    status,
-    notes: cleanNotes,
-    confirmedAt: new Date().toISOString(),
-    createdAt: existingGuest?.createdAt || new Date().toISOString(),
-  };
-
-  const list = getLocalStoredGuests();
-  if (existingGuest) {
-    const index = list.findIndex((guest) => guest.id === existingGuest.id || (guest.name || '').trim().toLowerCase() === cleanName.toLowerCase() || normalizePhoneId(guest.whatsapp) === normalizePhoneId(cleanWhatsapp));
-    if (index >= 0) {
-      list[index] = { ...list[index], ...guestData, id: existingGuest.id, updatedAt: new Date().toISOString() };
-    } else {
-      list.unshift(guestData);
+  // 1. Salvar no Firestore PRIMEIRO (se configurado)
+  if (isFirebaseConfigured && db) {
+    try {
+      const firestoreGuestDoc = doc(db, GUESTS_COLLECTION, targetId);
+      const payload: Record<string, unknown> = {
+        name: cleanName,
+        whatsapp: cleanWhatsapp,
+        attendees: finalAttendees,
+        companions: status === 'confirmed' ? cleanCompanions : [],
+        status,
+        ...(cleanNotes ? { notes: cleanNotes } : {}),
+        confirmedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(firestoreGuestDoc, payload, { merge: true });
+    } catch (e: any) {
+      console.error('Firebase guest creation error:', e);
+      throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
     }
-  } else {
-    list.unshift(guestData);
   }
-  saveLocalGuests(list);
-  notifyGuestListeners();
 
-  if (status === 'confirmed' && finalAttendees > 0 && (!existingGuest || existingGuest.status !== 'confirmed' || existingGuest.attendees !== finalAttendees)) {
-    const delta = Math.max(0, finalAttendees - (existingGuest?.attendees || 0));
+  // 2. Incrementar contador eventStats SOMENTE após gravação com sucesso
+  if (status === 'confirmed' && finalAttendees > 0 && (!existingLocal || existingLocal.status !== 'confirmed' || existingLocal.attendees !== finalAttendees)) {
+    const delta = Math.max(0, finalAttendees - (existingLocal?.attendees || 0));
     if (delta > 0) {
       try {
         await incrementConfirmedAttendees(delta);
@@ -254,33 +219,35 @@ export async function createGuestRsvp(params: {
     }
   }
 
-  if (isFirebaseConfigured && db) {
-    try {
-      const firestoreGuestDoc = existingRemote ? doc(db, GUESTS_COLLECTION, existingRemote.id) : doc(collection(db, GUESTS_COLLECTION), existingGuest?.id || guestId);
-      const payload = {
-        name: cleanName,
-        whatsapp: cleanWhatsapp,
-        attendees: finalAttendees,
-        companions: status === 'confirmed' ? cleanCompanions : [],
-        status,
-        ...(cleanNotes ? { notes: cleanNotes } : {}),
-        updatedAt: serverTimestamp(),
-        ...(existingRemote ? {} : { createdAt: serverTimestamp() }),
-      };
+  // 3. Atualizar cache local
+  const guestData: Guest = {
+    id: targetId,
+    name: cleanName,
+    whatsapp: cleanWhatsapp,
+    maxCompanions: existingLocal?.maxCompanions ?? Math.max(1, cleanCompanions.length),
+    attendees: finalAttendees,
+    companions: status === 'confirmed' ? cleanCompanions : [],
+    status,
+    notes: cleanNotes,
+    confirmedAt: new Date().toISOString(),
+    createdAt: existingLocal?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
 
-      if (existingRemote) {
-        await setDoc(firestoreGuestDoc, payload, { merge: true });
-      } else {
-        await setDoc(firestoreGuestDoc, payload, { merge: true });
-      }
-      return existingRemote?.id || existingGuest?.id || guestId;
-    } catch (e: any) {
-      console.error('Firebase guest creation error:', e);
-      throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
-    }
+  const list = getLocalStoredGuests();
+  const existingIndex = list.findIndex(
+    (g) => g.id === targetId || (phoneKey && normalizePhoneId(g.whatsapp) === phoneKey) || normalizeGuestName(g.name) === normalizeGuestName(cleanName)
+  );
+
+  if (existingIndex >= 0) {
+    list[existingIndex] = { ...list[existingIndex], ...guestData };
+  } else {
+    list.unshift(guestData);
   }
+  saveLocalGuests(list);
+  notifyGuestListeners();
 
-  return guestData.id;
+  return targetId;
 }
 
 /**
@@ -309,8 +276,11 @@ export async function addGuest(params: {
     throw new Error('Informe o nome do convidado.');
   }
 
+  const phoneId = normalizePhoneId(whatsapp);
+  const guestDocId = phoneId || `guest-${Date.now()}`;
+
   const newGuest: Guest = {
-    id: `guest-${Date.now()}`,
+    id: guestDocId,
     name: name.trim().slice(0, 80),
     whatsapp: whatsapp.trim().slice(0, 25),
     maxCompanions: Math.max(0, Number(maxCompanions)),
@@ -328,18 +298,21 @@ export async function addGuest(params: {
 
   if (isFirebaseConfigured && db) {
     try {
-      const docRef = await addDoc(collection(db, GUESTS_COLLECTION), {
+      const guestRef = doc(db, GUESTS_COLLECTION, guestDocId);
+      await setDoc(guestRef, {
         name: newGuest.name,
         whatsapp: newGuest.whatsapp,
+        maxCompanions: newGuest.maxCompanions,
         attendees: newGuest.attendees,
         companions: newGuest.companions,
         status: newGuest.status,
         ...(newGuest.notes ? { notes: newGuest.notes } : {}),
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
-      return docRef.id;
+      return guestDocId;
     } catch (e) {
-      console.warn('Firebase addDoc error, kept local:', e);
+      console.warn('Firebase setDoc error, kept local:', e);
       throw new Error('Não foi possível salvar o convidado no banco de dados.');
     }
   }
@@ -382,13 +355,16 @@ export async function addGuestsBatch(names: string[], defaultMaxCompanions = 1):
   if (isFirebaseConfigured && db) {
     for (const g of addedList) {
       try {
-        await addDoc(collection(db, GUESTS_COLLECTION), {
+        const guestRef = doc(db, GUESTS_COLLECTION, g.id);
+        await setDoc(guestRef, {
           name: g.name,
           whatsapp: g.whatsapp,
+          maxCompanions: g.maxCompanions,
           attendees: g.attendees,
           companions: g.companions,
           status: g.status,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
       } catch (e) {
         console.warn('Firebase batch add failed:', e);
@@ -423,9 +399,11 @@ export async function importGuestsFromList(
     const maxComp = Number.isFinite(Number(item.maxCompanions)) ? Math.max(0, Number(item.maxCompanions)) : 1;
     const status: GuestStatus = item.status || 'pending';
     const attendees = status === 'confirmed' ? Math.max(1, Number(item.attendees || 1)) : 0;
+    const phoneId = normalizePhoneId(item.whatsapp);
+    const guestDocId = phoneId || `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     const g: Guest = {
-      id: `guest-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id: guestDocId,
       name: item.name.trim().slice(0, 80),
       whatsapp: (item.whatsapp?.trim() || '00000000').slice(0, 25),
       maxCompanions: maxComp,
@@ -457,17 +435,20 @@ export async function importGuestsFromList(
       }
     }
 
-    // Insert new guests
+    // Insert new guests using setDoc with deterministic IDs
     for (const g of newItems) {
       try {
-        await addDoc(collection(db, GUESTS_COLLECTION), {
+        const guestRef = doc(db, GUESTS_COLLECTION, g.id);
+        await setDoc(guestRef, {
           name: g.name,
           whatsapp: g.whatsapp,
+          maxCompanions: g.maxCompanions,
           attendees: g.attendees,
           companions: g.companions,
           status: g.status,
           ...(g.notes ? { notes: g.notes } : {}),
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
       } catch (e) {
         console.warn('Firebase importGuestsFromList failed for row:', e);
