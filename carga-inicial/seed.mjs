@@ -84,7 +84,7 @@ function loadGuests() {
     const maxCompanions = Number.isNaN(max) ? 1 : Math.max(0, Math.min(9, max));
     const cleanPhone = phone.startsWith('55') && phone.length > 11 ? phone.slice(2) : phone;
     const phoneId = cleanPhone.length >= 8 && !/^0+$/.test(cleanPhone) && !/^(\d)\1+$/.test(cleanPhone) ? cleanPhone.slice(-11) : null;
-    const id = phoneId || ('guest-' + slug(name));
+    const id = `guest-${slug(name)}-${phoneId || 'no-phone'}`;
     if (seen.has(id)) errors.push(`${where}: nome duplicado na planilha`);
     seen.add(id);
     out.push({ id, data: {
