@@ -13,10 +13,73 @@ const SETTINGS_DOC_ID = 'main';
 
 let localSettingsListeners: Array<(settings: EventSettings) => void> = [];
 
+const bundledImageDefaults = [
+  { filename: 'alyne_portrait_1790969104126', url: DEFAULT_SETTINGS.mainImageUrl },
+  { filename: 'modern_living_room_1790969114799', url: DEFAULT_SETTINGS.galleryImages[0] },
+  { filename: 'kitchen_dining_bar_1790969125087', url: DEFAULT_SETTINGS.galleryImages[1] },
+  { filename: 'aesthetic_reading_nook_1790969135611', url: DEFAULT_SETTINGS.galleryImages[2] },
+];
+
+function getImagePath(url: string): string | null {
+  try {
+    return new URL(url, 'https://assets.invalid').pathname;
+  } catch {
+    return null;
+  }
+}
+
+function isUnstableBundledImageUrl(url: string): boolean {
+  const path = getImagePath(url);
+  return Boolean(
+    path &&
+    (path.startsWith('/src/assets/') ||
+      bundledImageDefaults.some((image) => path.includes(image.filename)))
+  );
+}
+
+function resolveImageUrl(url: string | undefined, fallback: string): string {
+  if (!url) return fallback;
+
+  const path = getImagePath(url);
+  const bundledImage = path
+    ? bundledImageDefaults.find((image) => path.includes(image.filename))
+    : undefined;
+
+  if (bundledImage) return bundledImage.url;
+  if (path?.startsWith('/src/assets/')) return fallback;
+  return url;
+}
+
+function normalizeSettings(settings: EventSettings): EventSettings {
+  const defaults = DEFAULT_SETTINGS.galleryImages;
+  const galleryImages = Array.isArray(settings.galleryImages) && settings.galleryImages.length > 0
+    ? settings.galleryImages.map((url, index) =>
+        resolveImageUrl(url, defaults[index % defaults.length] || defaults[0])
+      )
+    : defaults;
+
+  return {
+    ...settings,
+    mainImageUrl: resolveImageUrl(settings.mainImageUrl, DEFAULT_SETTINGS.mainImageUrl),
+    galleryImages,
+  };
+}
+
+function omitBundledImages<T extends Partial<EventSettings>>(settings: T): T {
+  const persistable = { ...settings };
+  if (persistable.mainImageUrl && isUnstableBundledImageUrl(persistable.mainImageUrl)) {
+    delete persistable.mainImageUrl;
+  }
+  if (persistable.galleryImages?.some(isUnstableBundledImageUrl)) {
+    delete persistable.galleryImages;
+  }
+  return persistable;
+}
+
 function getLocalSettings(): EventSettings {
   try {
     const raw = localStorage.getItem('alyne_settings_cache_v1');
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (raw) return normalizeSettings({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
   } catch (e) {
     console.warn('LocalStorage settings error:', e);
   }
@@ -24,9 +87,10 @@ function getLocalSettings(): EventSettings {
 }
 
 function saveLocalSettings(settings: EventSettings) {
+  const normalizedSettings = normalizeSettings(settings);
   try {
-    localStorage.setItem('alyne_settings_cache_v1', JSON.stringify(settings));
-    localSettingsListeners.forEach((fn) => fn(settings));
+    localStorage.setItem('alyne_settings_cache_v1', JSON.stringify(normalizedSettings));
+    localSettingsListeners.forEach((fn) => fn(normalizedSettings));
   } catch (e) {
     console.warn('LocalStorage save error:', e);
   }
@@ -49,7 +113,7 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
       if (!snapshot.exists()) {
         try {
           await setDoc(ref, {
-            ...DEFAULT_SETTINGS,
+            ...omitBundledImages(DEFAULT_SETTINGS),
             updatedAt: serverTimestamp(),
           });
         } catch (err) {
@@ -60,7 +124,7 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
       }
 
       const data = snapshot.data();
-      const merged: EventSettings = {
+      const merged = normalizeSettings({
         eventName: data.eventName || DEFAULT_SETTINGS.eventName,
         hostName: data.hostName || DEFAULT_SETTINGS.hostName,
         instagramHandle: data.instagramHandle || DEFAULT_SETTINGS.instagramHandle,
@@ -86,7 +150,7 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
         galleryImages: Array.isArray(data.galleryImages) && data.galleryImages.length > 0
           ? data.galleryImages
           : DEFAULT_SETTINGS.galleryImages,
-      };
+      });
 
       saveLocalSettings(merged);
       callback(merged);
@@ -101,10 +165,11 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
 }
 
 export async function updateEventSettings(newSettings: Partial<EventSettings>): Promise<void> {
-  saveLocalSettings({
+  const updatedSettings = normalizeSettings({
     ...getLocalSettings(),
     ...newSettings,
   });
+  saveLocalSettings(updatedSettings);
 
   if (!isFirebaseConfigured || !db) {
     return;
@@ -112,7 +177,7 @@ export async function updateEventSettings(newSettings: Partial<EventSettings>): 
 
   const ref = doc(db, SETTINGS_COLLECTION, SETTINGS_DOC_ID);
   await setDoc(ref, {
-    ...newSettings,
+    ...omitBundledImages(newSettings),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 }
