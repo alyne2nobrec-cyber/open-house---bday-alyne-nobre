@@ -2385,7 +2385,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
   const [totalQuantity, setTotalQuantity] = useState(gift?.totalQuantity || 1);
   const [imageUrl, setImageUrl] = useState(gift?.imageUrl || '');
   const [purchaseUrl, setPurchaseUrl] = useState(gift?.purchaseUrl || '');
-  const [pixKey, setPixKey] = useState(gift?.pixKey || 'alyne2.nobre.c@gmail.com');
+  const [pixKey, setPixKey] = useState(gift?.pixKey || '');
   const [status, setStatus] = useState<GiftStatus>(gift?.status || 'available');
   const [saving, setSaving] = useState(false);
 
@@ -2628,7 +2628,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
 
             <div>
               <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
-                Chave Pix Específica (opcional)
+                Chave Pix Específica (opcional; em branco, usa a chave do evento)
               </label>
               <input
                 type="text"
