@@ -174,7 +174,9 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
             {filteredGifts.map((gift) => {
-              const isSoldOut = gift.status === 'sold_out' || gift.availableQuantity <= 0;
+              const isUnavailable = gift.status === 'unavailable';
+              const isSoldOut = !isUnavailable &&
+                (gift.status === 'sold_out' || gift.availableQuantity <= 0);
               const hasExternalLink = !!gift.purchaseUrl;
               const isPixType = gift.type === 'pix' || (gift.pixKey && !hasExternalLink);
 
@@ -182,7 +184,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 <div
                   key={gift.id}
                   className={`flex flex-col bg-[#FAF8F5] rounded-3xl border overflow-hidden transition-all duration-200 ${
-                    isSoldOut
+                    isSoldOut || isUnavailable
                       ? 'border-[#EADBCE] opacity-80'
                       : 'border-[#EADBCE] hover:border-[#D5C6BA] hover:shadow-md'
                   }`}
@@ -195,7 +197,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                         alt={gift.name}
                         referrerPolicy="no-referrer"
                         className={`w-full h-full object-cover transition-transform duration-300 ${
-                          isSoldOut ? 'grayscale-40' : 'hover:scale-105'
+                          isSoldOut || isUnavailable ? 'grayscale-40' : 'hover:scale-105'
                         }`}
                       />
                     ) : (
@@ -210,7 +212,13 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       <div className="absolute inset-0 bg-stone-900/50 backdrop-blur-2xs flex items-center justify-center p-4">
                         <div className="bg-[#FAF8F5] text-[#2D2A26] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md flex items-center gap-1.5">
                           <CheckCircle2 className="w-4 h-4 text-[#8A9A86]" />
-                          <span>PRESENTE GARANTIDO! 🎉</span>
+                          <span>{gift.availableQuantity <= 0 ? 'PRESENTE GARANTIDO! 🎉' : 'ESGOTADO'}</span>
+                        </div>
+                      </div>
+                    ) : isUnavailable ? (
+                      <div className="absolute inset-0 bg-stone-900/40 backdrop-blur-2xs flex items-center justify-center p-4">
+                        <div className="bg-[#FAF8F5] text-[#2D2A26] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md">
+                          INDISPONÍVEL NO MOMENTO
                         </div>
                       </div>
                     ) : (
@@ -254,10 +262,12 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                           </span>
                           <span
                             className={`text-xs font-semibold tabular-nums ${
-                              isSoldOut ? 'text-stone-400' : 'text-[#A95339]'
+                              isSoldOut || isUnavailable ? 'text-stone-400' : 'text-[#A95339]'
                             }`}
                           >
-                            {isSoldOut
+                            {isUnavailable
+                              ? 'Indisponível'
+                              : isSoldOut
                               ? 'Esgotado'
                               : `${gift.availableQuantity} de ${gift.totalQuantity} cotas`}
                           </span>
@@ -265,9 +275,9 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       </div>
 
                       {/* Action Buttons */}
-                      {isSoldOut ? (
+                      {isSoldOut || isUnavailable ? (
                         <div className="w-full h-11 rounded-xl bg-[#EFE8DF] text-[#7D756C] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed">
-                          <span>Presente já garantido ❤️</span>
+                          <span>{isUnavailable ? 'Temporariamente indisponível' : 'Presente já garantido ❤️'}</span>
                         </div>
                       ) : (
                         <div className="space-y-2">
