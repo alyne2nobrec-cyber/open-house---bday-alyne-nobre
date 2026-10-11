@@ -272,23 +272,21 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
       ) {
         qtyIdx = idx;
       } else if (
-        col.includes('link') ||
-        col.includes('url') ||
-        col.includes('loja') ||
-        col.includes('compra')
-      ) {
-        if (!col.includes('img') && !col.includes('imagem') && !col.includes('foto')) {
-          urlIdx = idx;
-        }
-      } else if (col.includes('pix')) {
-        pixIdx = idx;
-      } else if (
         col.includes('imagem') ||
         col.includes('foto') ||
         col.includes('image') ||
         col.includes('img')
       ) {
         imgIdx = idx;
+      } else if (
+        col.includes('link') ||
+        col.includes('url') ||
+        col.includes('loja') ||
+        col.includes('compra')
+      ) {
+        urlIdx = idx;
+      } else if (col.includes('pix')) {
+        pixIdx = idx;
       }
     });
   } else {
@@ -309,7 +307,21 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
   const errors: string[] = [];
 
   for (let i = startIndex; i < rows.length; i++) {
-    const row = rows[i];
+    let row = rows[i];
+    if (
+      delimiter === ',' &&
+      row.length > headerRow.length &&
+      urlIdx >= 0 &&
+      imgIdx > urlIdx
+    ) {
+      const trailingColumnCount = headerRow.length - urlIdx - 1;
+      const urlEnd = row.length - trailingColumnCount;
+      row = [
+        ...row.slice(0, urlIdx),
+        row.slice(urlIdx, urlEnd).join(','),
+        ...row.slice(urlEnd),
+      ];
+    }
     const lineNumber = i + 1;
     const name = (nameIdx >= 0 && row[nameIdx] !== undefined ? row[nameIdx] : '').trim();
 
