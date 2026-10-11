@@ -11,10 +11,11 @@ import {
   orderBy,
   writeBatch,
   getDocs,
+  where,
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { auth } from '../lib/firebase';
-import { Gift, GiftCategory, GiftReservation } from '../types';
+import { Gift, GiftCategory, GiftReservation, GiftStatus } from '../types';
 import { INITIAL_GIFTS, INITIAL_RESERVATIONS } from '../data/defaultData';
 import alynePortrait from '../assets/images/alyne_portrait_1790969104126.jpg';
 import modernLivingRoom from '../assets/images/modern_living_room_1790969114799.jpg';
@@ -472,6 +473,11 @@ export async function updateReservationPayment(
 }
 
 export async function deleteReservation(reservationId: string): Promise<void> {
+  const cachedReservation = getLocalStoredReservations().find((reservation) => reservation.id === reservationId);
+  const cachedGift = cachedReservation
+    ? getLocalMergedGifts().find((gift) => gift.id === cachedReservation.giftId)
+    : undefined;
+
   if (isFirebaseConfigured && db) {
     const firestore = db;
     const reservationRef = doc(firestore, RESERVATIONS_COLLECTION, reservationId);
@@ -514,6 +520,33 @@ export async function deleteReservation(reservationId: string): Promise<void> {
 
   const localList = getLocalStoredReservations().filter((r) => r.id !== reservationId);
   saveLocalReservations(localList);
+
+  if (!isFirebaseConfigured && cachedReservation && cachedGift) {
+    const reservedQuantity = Math.max(
+      0,
+      cachedGift.reservedQuantity - Math.max(0, cachedReservation.quantity || 0)
+    );
+    const availableQuantity = Math.max(0, cachedGift.totalQuantity - reservedQuantity);
+    const restoredGiftState: Partial<Gift> = {
+      reservedQuantity,
+      availableQuantity,
+      status: cachedGift.status === 'unavailable'
+        ? 'unavailable'
+        : availableQuantity > 0 ? 'available' : 'sold_out',
+    };
+    const customGifts = getLocalCustomGifts();
+    const customGiftIndex = customGifts.findIndex((gift) => gift.id === cachedGift.id);
+
+    if (customGiftIndex >= 0) {
+      customGifts[customGiftIndex] = { ...customGifts[customGiftIndex], ...restoredGiftState };
+      localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(customGifts));
+    } else {
+      const overrides = getLocalGiftOverrides();
+      overrides[cachedGift.id] = { ...(overrides[cachedGift.id] || {}), ...restoredGiftState };
+      localStorage.setItem(LOCAL_GIFT_OVERRIDES_KEY, JSON.stringify(overrides));
+    }
+  }
+
   notifyReservationListeners();
   notifyGiftListeners();
 }
@@ -554,12 +587,32 @@ export async function updateGift(giftId: string, giftData: Partial<Gift>): Promi
   if (!isFirebaseConfigured || !db) {
     const list = getLocalCustomGifts();
     const index = list.findIndex((g) => g.id === giftId);
+    const currentGift = index >= 0
+      ? list[index]
+      : getLocalMergedGifts().find((gift) => gift.id === giftId);
+    const updates = { ...giftData };
+
+    if (updates.status === 'available' && currentGift) {
+      const localReservations = getLocalStoredReservations().filter(
+        (reservation) => reservation.giftId === giftId
+      );
+      const reservedQuantity = localReservations.length
+        ? localReservations.reduce((total, reservation) => total + Math.max(0, reservation.quantity || 0), 0)
+        : currentGift.reservedQuantity;
+      const totalQuantity = Math.max(0, Number(updates.totalQuantity ?? currentGift.totalQuantity) || 0);
+      updates.reservedQuantity = reservedQuantity;
+      updates.availableQuantity = Math.max(0, totalQuantity - reservedQuantity);
+      updates.status = updates.availableQuantity > 0 ? 'available' : 'sold_out';
+    } else if (updates.status === 'sold_out') {
+      updates.availableQuantity = 0;
+    }
+
     if (index >= 0) {
-      list[index] = { ...list[index], ...giftData };
+      list[index] = { ...list[index], ...updates };
       localStorage.setItem(LOCAL_CUSTOM_GIFTS_KEY, JSON.stringify(list));
     } else {
       const overrides = getLocalGiftOverrides();
-      overrides[giftId] = { ...(overrides[giftId] || {}), ...giftData };
+      overrides[giftId] = { ...(overrides[giftId] || {}), ...updates };
       localStorage.setItem(LOCAL_GIFT_OVERRIDES_KEY, JSON.stringify(overrides));
     }
     notifyGiftListeners();
@@ -567,11 +620,53 @@ export async function updateGift(giftId: string, giftData: Partial<Gift>): Promi
   }
 
   const giftRef = doc(db, GIFTS_COLLECTION, giftId);
+  const updatesToSave: Partial<Gift> = { ...giftData };
   const updates: Record<string, unknown> = {
-    ...giftData,
+    ...updatesToSave,
     updatedAt: serverTimestamp(),
   };
   delete updates.id;
+
+  if (updatesToSave.status || typeof updatesToSave.totalQuantity === 'number') {
+    const firestore = db;
+    const reservationsSnapshot = await getDocs(query(
+      collection(firestore, RESERVATIONS_COLLECTION),
+      where('giftId', '==', giftId)
+    ));
+    const reservedQuantity = reservationsSnapshot.docs.reduce(
+      (total, reservation) => total + Math.max(0, Number(reservation.data().quantity) || 0),
+      0
+    );
+
+    await runTransaction(firestore, async (transaction) => {
+      const giftSnapshot = await transaction.get(giftRef);
+      if (!giftSnapshot.exists()) {
+        throw new Error('Presente não encontrado para atualizar o status.');
+      }
+
+      const gift = giftSnapshot.data();
+      const totalQuantity = Math.max(
+        0,
+        Number(updatesToSave.totalQuantity ?? gift.totalQuantity) || 0
+      );
+      const availableQuantity = Math.max(0, totalQuantity - reservedQuantity);
+      const requestedStatus = updatesToSave.status || gift.status || 'available';
+      const status: GiftStatus = requestedStatus === 'unavailable'
+        ? 'unavailable'
+        : requestedStatus === 'sold_out' || availableQuantity <= 0
+          ? 'sold_out'
+          : 'available';
+
+      transaction.update(giftRef, {
+        ...updates,
+        reservedQuantity,
+        availableQuantity: status === 'sold_out' ? 0 : availableQuantity,
+        status,
+      });
+    });
+    return;
+  }
+
   await updateDoc(giftRef, updates);
 }
 

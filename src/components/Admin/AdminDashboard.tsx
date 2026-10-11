@@ -370,8 +370,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   };
 
   const handleToggleStatus = async (gift: Gift) => {
-    const nextStatus: GiftStatus =
-      gift.status === 'available' ? 'unavailable' : gift.status === 'unavailable' ? 'sold_out' : 'available';
+    const isCurrentlyAvailable = gift.status === 'available' && gift.availableQuantity > 0;
+    const nextStatus: GiftStatus = isCurrentlyAvailable ? 'unavailable' : 'available';
     await updateGift(gift.id, { status: nextStatus });
   };
 
@@ -975,6 +975,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             className={`px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
                               gift.status === 'available' && gift.availableQuantity > 0
                                 ? 'bg-emerald-50 text-emerald-700'
+                                : gift.status === 'unavailable'
+                                ? 'bg-stone-100 text-stone-600'
                                 : gift.status === 'sold_out' || gift.availableQuantity <= 0
                                 ? 'bg-amber-50 text-amber-700'
                                 : 'bg-stone-100 text-stone-600'
@@ -982,6 +984,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           >
                             {gift.status === 'available' && gift.availableQuantity > 0
                               ? 'Disponível'
+                              : gift.status === 'unavailable'
+                              ? 'Indisponível'
                               : gift.status === 'sold_out' || gift.availableQuantity <= 0
                               ? 'Esgotado'
                               : 'Indisponível'}
