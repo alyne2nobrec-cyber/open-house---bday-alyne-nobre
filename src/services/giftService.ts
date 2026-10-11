@@ -472,14 +472,50 @@ export async function updateReservationPayment(
 }
 
 export async function deleteReservation(reservationId: string): Promise<void> {
+  if (isFirebaseConfigured && db) {
+    const firestore = db;
+    const reservationRef = doc(firestore, RESERVATIONS_COLLECTION, reservationId);
+    await runTransaction(firestore, async (transaction) => {
+      const reservationSnapshot = await transaction.get(reservationRef);
+      if (!reservationSnapshot.exists()) return;
+
+      const reservation = reservationSnapshot.data();
+      const giftId = typeof reservation.giftId === 'string' ? reservation.giftId : '';
+      const quantity = Math.max(0, Number(reservation.quantity) || 0);
+
+      if (giftId && quantity > 0) {
+        const giftRef = doc(firestore, GIFTS_COLLECTION, giftId);
+        const giftSnapshot = await transaction.get(giftRef);
+
+        if (giftSnapshot.exists()) {
+          const gift = giftSnapshot.data();
+          const totalQuantity = Math.max(0, Number(gift.totalQuantity) || 0);
+          const currentReserved = Math.max(0, Number(gift.reservedQuantity) || 0);
+          const currentAvailable = Math.max(0, Number(gift.availableQuantity) || 0);
+          const newReserved = Math.max(0, currentReserved - quantity);
+          const newAvailable = Math.min(
+            Math.max(0, totalQuantity - newReserved),
+            currentAvailable + quantity
+          );
+          const isUnavailable = gift.status === 'unavailable';
+
+          transaction.update(giftRef, {
+            reservedQuantity: newReserved,
+            availableQuantity: newAvailable,
+            status: isUnavailable ? 'unavailable' : newAvailable > 0 ? 'available' : 'sold_out',
+            updatedAt: serverTimestamp(),
+          });
+        }
+      }
+
+      transaction.delete(reservationRef);
+    });
+  }
+
   const localList = getLocalStoredReservations().filter((r) => r.id !== reservationId);
   saveLocalReservations(localList);
   notifyReservationListeners();
-
-  if (isFirebaseConfigured && db) {
-    const reservationRef = doc(db, RESERVATIONS_COLLECTION, reservationId);
-    await deleteDoc(reservationRef);
-  }
+  notifyGiftListeners();
 }
 
 export async function createGift(giftData: Omit<Gift, 'id'>): Promise<string> {
