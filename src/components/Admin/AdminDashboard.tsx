@@ -1811,6 +1811,128 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 />
               </div>
 
+              {/* Endereço de Envio dos Presentes */}
+              <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] space-y-4">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-[#A95339] flex items-center gap-1.5">
+                    <span>Endereço de Envio dos Presentes</span>
+                  </div>
+                  <p className="text-[11px] text-[#68625B] mt-0.5">
+                    Para onde seus convidados devem enviar os presentes comprados em lojas online. Pode ser diferente do endereço do evento.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Nome de quem recebe
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingRecipientName || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingRecipientName: e.target.value })}
+                      placeholder="Ex: Alyne Nobre"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Telefone de contato
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingPhone || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingPhone: e.target.value })}
+                      placeholder="Ex: (11) 99999-9999"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div className="sm:col-span-2">
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Rua e número
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingStreet || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingStreet: e.target.value })}
+                      placeholder="Ex: Av. Paulista, 1000"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Complemento
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingComplement || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingComplement: e.target.value })}
+                      placeholder="Ex: Apto 82, Bloco B"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Bairro
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingNeighborhood || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingNeighborhood: e.target.value })}
+                      placeholder="Ex: Bela Vista"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Cidade e UF
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingCity || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingCity: e.target.value })}
+                      placeholder="Ex: São Paulo, SP"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      CEP
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.shippingZip || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, shippingZip: e.target.value })}
+                      placeholder="Ex: 01310-100"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                    Observações de entrega
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={settingsForm.shippingNotes || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, shippingNotes: e.target.value })}
+                    placeholder="Ex: Portaria recebe até 18h, deixar com o porteiro..."
+                    className="w-full p-2.5 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none resize-none"
+                  />
+                </div>
+              </div>
+
               {/* Dados Bancários e Pix para Recebimento de Presentes */}
               <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] space-y-4">
                 <div>

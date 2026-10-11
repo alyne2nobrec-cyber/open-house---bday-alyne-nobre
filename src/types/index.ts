@@ -76,6 +76,14 @@ export interface EventSettings {
   locationCity: string;
   locationNotes?: string;
   googleMapsUrl?: string;
+  shippingRecipientName?: string;
+  shippingStreet?: string;
+  shippingComplement?: string;
+  shippingNeighborhood?: string;
+  shippingCity?: string;
+  shippingZip?: string;
+  shippingPhone?: string;
+  shippingNotes?: string;
   heroHeading: string;
   heroSubheading: string;
   quote: string;
