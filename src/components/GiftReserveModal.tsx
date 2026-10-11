@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
-import { X, Copy, Check, Heart, ExternalLink, QrCode as PixIcon, AlertCircle, ShoppingBag, ShieldCheck } from 'lucide-react';
+import { X, Copy, Check, Heart, ExternalLink, QrCode as PixIcon, AlertCircle, ShoppingBag, ShieldCheck, MapPin, Truck } from 'lucide-react';
 import { Gift, EventSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../data/defaultData';
 import { reserveGiftWithTransaction } from '../services/giftService';
@@ -325,7 +325,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
             )}
 
             {gift.purchaseUrl && (
-              <div className="bg-[#FFFFFF] border border-[#EADBCE] rounded-2xl p-4 mb-6 text-left">
+              <div className="bg-[#FFFFFF] border border-[#EADBCE] rounded-2xl p-4 mb-4 text-left">
                 <div className="text-xs font-semibold uppercase tracking-wider text-[#A95339] mb-1">
                   Comprar na loja
                 </div>
@@ -345,43 +345,56 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
             )}
 
             {gift.purchaseUrl && settings?.shippingStreet?.trim() && (
-              <div className="bg-[#FFFFFF] border border-[#EADBCE] rounded-2xl p-4 mb-6 text-left">
-                <div className="text-xs font-semibold uppercase tracking-wider text-[#A95339] mb-1">
-                  Endereço para Envio
+              <div className="bg-[#FFFFFF] border-2 border-[#C86D51]/30 rounded-2xl p-5 mb-6 text-left shadow-xs">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#FBF0EB] flex items-center justify-center text-[#C86D51] shrink-0">
+                    <Truck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wider text-[#A95339]">
+                      Aviso: Para onde enviar o presente
+                    </div>
+                    <p className="text-[11px] text-[#68625B]">
+                      Ao comprar online, solicite a entrega diretamente neste endereço:
+                    </p>
+                  </div>
                 </div>
-                <p className="text-xs text-[#68625B] mb-3">
-                  Ao finalizar a compra na loja, solicite a entrega no seguinte endereço:
-                </p>
 
-                <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs text-[#2D2A26] space-y-1">
+                <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs text-[#2D2A26] space-y-1.5 mt-3">
                   {settings.shippingRecipientName && (
-                    <div>
-                      <strong className="text-[#524B43]">Destinatário:</strong> {settings.shippingRecipientName}
+                    <div className="flex items-start gap-1.5">
+                      <span className="text-[#7D756C] font-medium shrink-0">Destinatário:</span>
+                      <strong className="text-[#2D2A26] font-semibold">{settings.shippingRecipientName}</strong>
                     </div>
                   )}
-                  <div>
-                    <strong className="text-[#524B43]">Endereço:</strong> {settings.shippingStreet}
-                    {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-[#7D756C] font-medium shrink-0">Endereço:</span>
+                    <span className="font-semibold text-[#2D2A26]">
+                      {settings.shippingStreet}
+                      {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+                    </span>
                   </div>
                   {(settings.shippingNeighborhood || settings.shippingCity) && (
-                    <div>
+                    <div className="text-[#524B43]">
                       {settings.shippingNeighborhood ? `${settings.shippingNeighborhood} — ` : ''}
                       {settings.shippingCity || ''}
                     </div>
                   )}
                   {settings.shippingZip && (
                     <div>
-                      <strong className="text-[#524B43]">CEP:</strong> {settings.shippingZip}
+                      <span className="text-[#7D756C] font-medium">CEP:</span>{' '}
+                      <strong className="font-mono text-[#2D2A26]">{settings.shippingZip}</strong>
                     </div>
                   )}
                   {settings.shippingPhone && (
                     <div>
-                      <strong className="text-[#524B43]">Contato:</strong> {settings.shippingPhone}
+                      <span className="text-[#7D756C] font-medium">Contato entrega:</span>{' '}
+                      <span className="font-medium text-[#2D2A26]">{settings.shippingPhone}</span>
                     </div>
                   )}
                   {settings.shippingNotes && (
                     <div className="pt-1 text-[11px] text-[#7D756C] italic border-t border-[#F0E6DE] mt-1.5">
-                      <strong>Obs:</strong> {settings.shippingNotes}
+                      <strong>Instruções de entrega:</strong> {settings.shippingNotes}
                     </div>
                   )}
                 </div>
@@ -389,17 +402,17 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                 <button
                   type="button"
                   onClick={handleCopyShippingAddress}
-                  className="w-full mt-3 h-10 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F0E6DE] border border-[#EADBCE] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  className="w-full mt-3 h-11 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F0E6DE] border border-[#EADBCE] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
                 >
                   {shippingCopied ? (
                     <>
                       <Check className="w-4 h-4 text-emerald-600" />
-                      <span>Endereço Completo Copiado!</span>
+                      <span className="text-emerald-700 font-bold">Endereço Completo Copiado!</span>
                     </>
                   ) : (
                     <>
                       <Copy className="w-4 h-4 text-[#A95339]" />
-                      <span>Copiar Endereço Completo</span>
+                      <span>Copiar Endereço Completo de Entrega</span>
                     </>
                   )}
                 </button>
