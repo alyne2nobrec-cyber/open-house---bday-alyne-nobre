@@ -234,6 +234,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     downloadCsvFile(`reservas_presentes_alyne_${new Date().toISOString().slice(0, 10)}`, headers, rows);
   };
 
+  // Safe Export Gifts CSV
+  const handleExportGiftsCsv = () => {
+    if (!gifts || gifts.length === 0) {
+      setActionFeedback('Nenhum presente cadastrado para exportar.');
+      window.setTimeout(() => setActionFeedback(null), 3000);
+      return;
+    }
+
+    const headers = [
+      'Nome',
+      'Descricao',
+      'Categoria',
+      'Tipo',
+      'Preco',
+      'Quantidade',
+      'Link_Compra',
+      'Chave_Pix',
+      'Imagem_URL',
+      'Reservadas',
+      'Disponiveis',
+      'Status',
+    ];
+
+    const rows = gifts.map((g) => {
+      const statusLabel =
+        g.status === 'unavailable'
+          ? 'Indisponível'
+          : g.status === 'sold_out' || (g.availableQuantity ?? 0) <= 0
+          ? 'Esgotado'
+          : 'Disponível';
+
+      return [
+        g.name || '',
+        g.description || '',
+        g.category || '',
+        g.type || 'product',
+        (Number(g.price) || 0).toFixed(2),
+        g.totalQuantity ?? 1,
+        g.purchaseUrl || '',
+        g.pixKey || '',
+        g.imageUrl || '',
+        g.reservedQuantity ?? 0,
+        g.availableQuantity ?? 0,
+        statusLabel,
+      ];
+    });
+
+    downloadCsvFile(`lista_presentes_alyne_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+  };
+
   // Toggle paid status
   const handleToggleReservationPaid = async (r: GiftReservation) => {
     try {
@@ -822,6 +872,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
 
                   <button
+                    onClick={handleExportGiftsCsv}
+                    className="h-12 px-4 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-[#68625B]" />
+                    <span>Exportar Presentes (CSV)</span>
+                  </button>
+
+                  <button
                     onClick={() => setActiveTab('whoGaveWhat')}
                     className="h-12 px-4 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
@@ -905,6 +963,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   <FileSpreadsheet className="w-4 h-4 text-[#C86D51]" />
                   <span>Importar CSV</span>
+                </button>
+
+                <button
+                  onClick={handleExportGiftsCsv}
+                  className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-[#C86D51]" />
+                  <span>Exportar CSV</span>
                 </button>
 
                 <button
