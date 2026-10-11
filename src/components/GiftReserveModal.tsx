@@ -29,6 +29,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
   const [isReservedSuccess, setIsReservedSuccess] = useState(false);
   const [pixCopied, setPixCopied] = useState(false);
   const [copiaEColaCopied, setCopiaEColaCopied] = useState(false);
+  const [shippingCopied, setShippingCopied] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
 
   const giftPixKey = (gift?.pixKey || '').trim();
@@ -109,6 +110,27 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
       window.setTimeout(() => setCopiaEColaCopied(false), 3000);
     } catch {
       setError('Não foi possível copiar o código Pix Copia e Cola.');
+    }
+  };
+
+  const handleCopyShippingAddress = async () => {
+    const lines = [
+      settings?.shippingRecipientName ? `Destinatário: ${settings.shippingRecipientName}` : '',
+      settings?.shippingStreet || '',
+      settings?.shippingComplement ? `Complemento: ${settings.shippingComplement}` : '',
+      settings?.shippingNeighborhood ? `Bairro: ${settings.shippingNeighborhood}` : '',
+      settings?.shippingCity || '',
+      settings?.shippingZip ? `CEP: ${settings.shippingZip}` : '',
+      settings?.shippingPhone ? `Telefone: ${settings.shippingPhone}` : '',
+      settings?.shippingNotes ? `Obs: ${settings.shippingNotes}` : '',
+    ].filter(Boolean).join('\n');
+
+    try {
+      await navigator.clipboard.writeText(lines);
+      setShippingCopied(true);
+      window.setTimeout(() => setShippingCopied(false), 3000);
+    } catch {
+      setError('Não foi possível copiar o endereço.');
     }
   };
 
@@ -319,6 +341,68 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                   <ExternalLink className="w-4 h-4" />
                   <span>Acessar Link do Produto na Loja</span>
                 </a>
+              </div>
+            )}
+
+            {gift.purchaseUrl && settings?.shippingStreet?.trim() && (
+              <div className="bg-[#FFFFFF] border border-[#EADBCE] rounded-2xl p-4 mb-6 text-left">
+                <div className="text-xs font-semibold uppercase tracking-wider text-[#A95339] mb-1">
+                  Endereço para Envio
+                </div>
+                <p className="text-xs text-[#68625B] mb-3">
+                  Ao finalizar a compra na loja, solicite a entrega no seguinte endereço:
+                </p>
+
+                <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs text-[#2D2A26] space-y-1">
+                  {settings.shippingRecipientName && (
+                    <div>
+                      <strong className="text-[#524B43]">Destinatário:</strong> {settings.shippingRecipientName}
+                    </div>
+                  )}
+                  <div>
+                    <strong className="text-[#524B43]">Endereço:</strong> {settings.shippingStreet}
+                    {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+                  </div>
+                  {(settings.shippingNeighborhood || settings.shippingCity) && (
+                    <div>
+                      {settings.shippingNeighborhood ? `${settings.shippingNeighborhood} — ` : ''}
+                      {settings.shippingCity || ''}
+                    </div>
+                  )}
+                  {settings.shippingZip && (
+                    <div>
+                      <strong className="text-[#524B43]">CEP:</strong> {settings.shippingZip}
+                    </div>
+                  )}
+                  {settings.shippingPhone && (
+                    <div>
+                      <strong className="text-[#524B43]">Contato:</strong> {settings.shippingPhone}
+                    </div>
+                  )}
+                  {settings.shippingNotes && (
+                    <div className="pt-1 text-[11px] text-[#7D756C] italic border-t border-[#F0E6DE] mt-1.5">
+                      <strong>Obs:</strong> {settings.shippingNotes}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCopyShippingAddress}
+                  className="w-full mt-3 h-10 px-4 rounded-xl bg-[#FAF8F5] hover:bg-[#F0E6DE] border border-[#EADBCE] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  {shippingCopied ? (
+                    <>
+                      <Check className="w-4 h-4 text-emerald-600" />
+                      <span>Endereço Completo Copiado!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4 text-[#A95339]" />
+                      <span>Copiar Endereço Completo</span>
+                    </>
+                  )}
+                </button>
               </div>
             )}
 
