@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { auth } from '../lib/firebase';
-import { Gift, GiftCategory, GiftReservation, GiftStatus } from '../types';
+import { Gift, GiftCategory, GiftReservation, GiftStatus, GiftFulfillmentStatus } from '../types';
 import { INITIAL_GIFTS, INITIAL_RESERVATIONS } from '../data/defaultData';
 import alynePortrait from '../assets/images/alyne_portrait_1790969104126.jpg';
 import modernLivingRoom from '../assets/images/modern_living_room_1790969114799.jpg';
@@ -435,6 +435,11 @@ export function subscribeReservations(
           paidAt: d.paidAt?.toDate ? d.paidAt.toDate().toISOString() : d.paidAt,
           message: d.message || '',
           createdAt: d.createdAt?.toDate ? d.createdAt.toDate().toISOString() : d.createdAt,
+          fulfillmentStatus: d.fulfillmentStatus || 'reserved',
+          purchasedAt: d.purchasedAt?.toDate ? d.purchasedAt.toDate().toISOString() : d.purchasedAt,
+          receivedAt: d.receivedAt?.toDate ? d.receivedAt.toDate().toISOString() : d.receivedAt,
+          trackingCode: d.trackingCode || '',
+          orderNote: d.orderNote || '',
         };
       });
       callback(list);
@@ -767,3 +772,89 @@ export async function importGiftsFromList(
 
   return { created, skipped, failed };
 }
+
+export async function updateReservationFulfillment(
+  reservationId: string,
+  patch: {
+    fulfillmentStatus?: GiftFulfillmentStatus;
+    trackingCode?: string;
+    orderNote?: string;
+  }
+): Promise<void> {
+  const localList = getLocalStoredReservations();
+  const index = localList.findIndex((r) => r.id === reservationId);
+
+  const current = index >= 0 ? localList[index] : null;
+  const currentFulfillmentStatus = current?.fulfillmentStatus || 'reserved';
+  const newStatus = patch.fulfillmentStatus !== undefined ? patch.fulfillmentStatus : currentFulfillmentStatus;
+
+  let purchasedAtLocal = current?.purchasedAt;
+  let receivedAtLocal = current?.receivedAt;
+
+  if (patch.fulfillmentStatus !== undefined) {
+    if (newStatus === 'purchased') {
+      purchasedAtLocal = current?.purchasedAt || new Date().toISOString();
+      receivedAtLocal = undefined;
+    } else if (newStatus === 'received') {
+      receivedAtLocal = new Date().toISOString();
+      if (!purchasedAtLocal) {
+        purchasedAtLocal = new Date().toISOString();
+      }
+    } else if (newStatus === 'reserved') {
+      purchasedAtLocal = undefined;
+      receivedAtLocal = undefined;
+    }
+  }
+
+  const updatedTracking =
+    patch.trackingCode !== undefined ? patch.trackingCode.trim().slice(0, 80) : (current?.trackingCode || '');
+  const updatedOrderNote =
+    patch.orderNote !== undefined ? patch.orderNote.trim().slice(0, 300) : (current?.orderNote || '');
+
+  if (index >= 0) {
+    localList[index] = {
+      ...localList[index],
+      fulfillmentStatus: newStatus,
+      purchasedAt: purchasedAtLocal,
+      receivedAt: receivedAtLocal,
+      trackingCode: updatedTracking,
+      orderNote: updatedOrderNote,
+    };
+    saveLocalReservations(localList);
+    notifyReservationListeners();
+  }
+
+  if (isFirebaseConfigured && db) {
+    const reservationRef = doc(db, RESERVATIONS_COLLECTION, reservationId);
+    const firestoreUpdates: Record<string, any> = {
+      updatedAt: serverTimestamp(),
+    };
+
+    if (patch.fulfillmentStatus !== undefined) {
+      firestoreUpdates.fulfillmentStatus = newStatus;
+      if (newStatus === 'purchased') {
+        firestoreUpdates.purchasedAt = current?.purchasedAt ? current.purchasedAt : serverTimestamp();
+        firestoreUpdates.receivedAt = null;
+      } else if (newStatus === 'received') {
+        firestoreUpdates.receivedAt = serverTimestamp();
+        if (!current?.purchasedAt) {
+          firestoreUpdates.purchasedAt = serverTimestamp();
+        }
+      } else if (newStatus === 'reserved') {
+        firestoreUpdates.purchasedAt = null;
+        firestoreUpdates.receivedAt = null;
+      }
+    }
+
+    if (patch.trackingCode !== undefined) {
+      firestoreUpdates.trackingCode = updatedTracking;
+    }
+
+    if (patch.orderNote !== undefined) {
+      firestoreUpdates.orderNote = updatedOrderNote;
+    }
+
+    await updateDoc(reservationRef, firestoreUpdates);
+  }
+}
+

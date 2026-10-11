@@ -27,8 +27,10 @@ import {
   Clock,
   FileSpreadsheet,
   ArrowRight,
+  Package,
+  Truck,
 } from 'lucide-react';
-import { Gift, GiftCategory, GiftReservation, Guest, GuestStatus, EventSettings, GiftType, GiftStatus } from '../../types';
+import { Gift, GiftCategory, GiftReservation, Guest, GuestStatus, EventSettings, GiftType, GiftStatus, GiftFulfillmentStatus } from '../../types';
 import {
   createGift,
   updateGift,
@@ -38,6 +40,7 @@ import {
   updateReservationPayment,
   deleteReservation,
   importGiftsFromList,
+  updateReservationFulfillment,
 } from '../../services/giftService';
 import {
   addGuest,
@@ -68,7 +71,7 @@ interface AdminDashboardProps {
   onRetrySubscriptions?: () => void;
 }
 
-type AdminTab = 'overview' | 'gifts' | 'guests' | 'whoGaveWhat' | 'whatsapp' | 'settings';
+type AdminTab = 'overview' | 'gifts' | 'whoGaveWhat' | 'linkGifts' | 'guests' | 'whatsapp' | 'settings';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   gifts,
@@ -140,6 +143,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [resPaymentFilter, setResPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [resViewMode, setResViewMode] = useState<'list' | 'byGift'>('list');
 
+  // Link gifts tab state
+  const [linkSearch, setLinkSearch] = useState('');
+  const [linkStatusFilter, setLinkStatusFilter] = useState<'all' | 'reserved' | 'purchased' | 'received'>('all');
+  const [linkViewMode, setLinkViewMode] = useState<'list' | 'byGift'>('list');
+  const [editingTrackingId, setEditingTrackingId] = useState<string | null>(null);
+  const [trackingInput, setTrackingInput] = useState('');
+  const [orderNoteInput, setOrderNoteInput] = useState('');
+  const [savingTrackingId, setSavingTrackingId] = useState<string | null>(null);
+  const [copiedShipping, setCopiedShipping] = useState(false);
+  const [isShippingOpen, setIsShippingOpen] = useState(false);
+
   // 1. Calculations for Overview
   const confirmedGuests = guests.filter((g) => g.status === 'confirmed');
   const pendingGuests = guests.filter((g) => g.status === 'pending');
@@ -161,6 +175,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalReservedAmount = reservations.reduce((acc, r) => acc + getReservationAmount(r), 0);
   const totalPaidAmount = reservations.filter((r) => r.paid).reduce((acc, r) => acc + getReservationAmount(r), 0);
   const totalPendingAmount = Math.max(0, totalReservedAmount - totalPaidAmount);
+
+  // Calculations for Link Gifts tab
+  const isLinkGift = (g?: Gift) => Boolean(g && g.purchaseUrl && g.purchaseUrl.trim() !== '' && g.type !== 'pix');
+  const linkReservations = reservations.filter((r) => isLinkGift(gifts.find((g) => g.id === r.giftId)));
+
+  const linkReservedStatusList = linkReservations.filter((r) => !r.fulfillmentStatus || r.fulfillmentStatus === 'reserved');
+  const linkPurchasedStatusList = linkReservations.filter((r) => r.fulfillmentStatus === 'purchased');
+  const linkReceivedStatusList = linkReservations.filter((r) => r.fulfillmentStatus === 'received');
+
+  const totalLinkAmount = linkReservations.reduce((acc, r) => acc + getReservationAmount(r), 0);
+  const totalLinkItems = linkReservations.reduce((acc, r) => acc + (r.quantity || 1), 0);
+  const linkReservedAmount = linkReservedStatusList.reduce((acc, r) => acc + getReservationAmount(r), 0);
+  const linkPurchasedAmount = linkPurchasedStatusList.reduce((acc, r) => acc + getReservationAmount(r), 0);
+  const linkReceivedAmount = linkReceivedStatusList.reduce((acc, r) => acc + getReservationAmount(r), 0);
 
   // Safe Export Guests CSV
   const handleExportGuestsCsv = () => {
@@ -282,6 +310,123 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     });
 
     downloadCsvFile(`lista_presentes_alyne_${new Date().toISOString().slice(0, 10)}`, headers, rows);
+  };
+
+  // Safe Export Link Reservations CSV
+  const handleExportLinkReservationsCsv = () => {
+    if (linkReservations.length === 0) {
+      setActionFeedback('Nenhum presente de link para exportar.');
+      window.setTimeout(() => setActionFeedback(null), 3000);
+      return;
+    }
+
+    const headers = [
+      'Convidado',
+      'WhatsApp',
+      'Presente',
+      'Link da Loja',
+      'Qtd',
+      'Valor Total (R$)',
+      'Status',
+      'Código de Rastreio',
+      'Data Reserva',
+      'Data Compra',
+      'Data Recebimento',
+      'Recado',
+      'Observação',
+    ];
+
+    const rows = linkReservations.map((r) => {
+      const g = gifts.find((item) => item.id === r.giftId);
+      const total = getReservationAmount(r);
+      const statusLabel =
+        r.fulfillmentStatus === 'received'
+          ? 'Recebido'
+          : r.fulfillmentStatus === 'purchased'
+          ? 'Comprado'
+          : 'Aguardando compra';
+
+      return [
+        r.guestName,
+        r.guestWhatsapp,
+        r.giftName || g?.name || 'Presente',
+        g?.purchaseUrl || '',
+        r.quantity,
+        total.toFixed(2),
+        statusLabel,
+        r.trackingCode || '',
+        r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '',
+        r.purchasedAt ? new Date(r.purchasedAt).toLocaleDateString('pt-BR') : '',
+        r.receivedAt ? new Date(r.receivedAt).toLocaleDateString('pt-BR') : '',
+        r.message || '',
+        r.orderNote || '',
+      ];
+    });
+
+    downloadCsvFile(
+      `presentes_link_openhouse_alyne_${new Date().toISOString().slice(0, 10)}`,
+      headers,
+      rows
+    );
+  };
+
+  const handleUpdateFulfillment = async (
+    reservationId: string,
+    newStatus: GiftFulfillmentStatus,
+    guestName: string
+  ) => {
+    try {
+      await updateReservationFulfillment(reservationId, { fulfillmentStatus: newStatus });
+      const label =
+        newStatus === 'received'
+          ? 'Recebido ✓'
+          : newStatus === 'purchased'
+          ? 'Comprado / A caminho'
+          : 'Aguardando compra';
+      setActionFeedback(`Status de ${guestName} alterado para "${label}".`);
+      window.setTimeout(() => setActionFeedback(null), 3000);
+    } catch (err: any) {
+      alert('Erro ao atualizar status: ' + (err?.message || 'Tente novamente'));
+    }
+  };
+
+  const handleStartEditingTracking = (r: GiftReservation) => {
+    setEditingTrackingId(r.id);
+    setTrackingInput(r.trackingCode || '');
+    setOrderNoteInput(r.orderNote || '');
+  };
+
+  const handleSaveTracking = async (reservationId: string) => {
+    setSavingTrackingId(reservationId);
+    try {
+      await updateReservationFulfillment(reservationId, {
+        trackingCode: trackingInput,
+        orderNote: orderNoteInput,
+      });
+      setEditingTrackingId(null);
+      setActionFeedback('Rastreio e observação salvos com sucesso.');
+      window.setTimeout(() => setActionFeedback(null), 3000);
+    } catch (err: any) {
+      alert('Erro ao salvar observações: ' + (err?.message || 'Tente novamente'));
+    } finally {
+      setSavingTrackingId(null);
+    }
+  };
+
+  const handleCopyShippingAddress = () => {
+    const lines = [
+      settings.shippingRecipientName ? `Destinatário: ${settings.shippingRecipientName}` : '',
+      `${settings.shippingStreet}${settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}`,
+      settings.shippingNeighborhood ? `Bairro: ${settings.shippingNeighborhood}` : '',
+      `${settings.shippingCity || ''}${settings.shippingZip ? ` - CEP ${settings.shippingZip}` : ''}`,
+      settings.shippingPhone ? `Telefone: ${settings.shippingPhone}` : '',
+      settings.shippingNotes ? `Obs: ${settings.shippingNotes}` : '',
+    ].filter(Boolean);
+
+    if (lines.length === 0) return;
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedShipping(true);
+    setTimeout(() => setCopiedShipping(false), 2500);
   };
 
   // Toggle paid status
@@ -630,6 +775,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             Quem está me presenteando? ({reservations.length})
+          </button>
+
+          <button
+            onClick={() => setActiveTab('linkGifts')}
+            className={`h-9 px-4 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+              activeTab === 'linkGifts'
+                ? 'bg-[#C86D51] text-white shadow-xs'
+                : 'text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F4EFEB]'
+            }`}
+          >
+            Presentes por Link ({linkReservations.length})
           </button>
 
           <button
@@ -1572,6 +1728,660 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </a>
                             )}
                           </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* ===================== TAB: PRESENTES POR LINK ===================== */}
+        {activeTab === 'linkGifts' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="font-serif text-2xl font-medium text-[#2D2A26]">
+                  Presentes por Link (Lojas & Marketplaces)
+                </h2>
+                <p className="text-xs text-[#68625B]">
+                  Acompanhe quem escolheu presentes de loja, se já comprou e se já chegou na casa.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportLinkReservationsCsv}
+                  className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+                >
+                  <Download className="w-4 h-4 text-[#68625B]" />
+                  <span>Exportar Relatório CSV</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Aviso de Endereço de Entrega */}
+            {!settings.shippingStreet?.trim() ? (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <strong className="font-semibold block text-amber-950">Endereço de entrega não cadastrado</strong>
+                    <span>Você ainda não cadastrou o endereço de entrega. Preencha em Personalizar Evento para que os convidados saibam para onde enviar.</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('settings')}
+                  className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                >
+                  Preencher Endereço →
+                </button>
+              </div>
+            ) : (
+              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE] shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#FAF8F5] text-[#C86D51] flex items-center justify-center shrink-0 border border-[#EADBCE]">
+                    <Truck className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-[#2D2A26] block">
+                      Endereço cadastrado para envio:
+                    </span>
+                    <span className="text-[#68625B]">
+                      {settings.shippingStreet}
+                      {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+                      {settings.shippingNeighborhood ? ` • ${settings.shippingNeighborhood}` : ''}
+                      {settings.shippingCity ? ` • ${settings.shippingCity}` : ''}
+                      {settings.shippingZip ? ` (CEP ${settings.shippingZip})` : ''}
+                      {settings.shippingRecipientName ? ` • A/C: ${settings.shippingRecipientName}` : ''}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCopyShippingAddress}
+                    className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {copiedShipping ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="text-emerald-700 font-semibold">Copiado!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 text-[#C86D51]" />
+                        <span>Copiar endereço</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('settings')}
+                    className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#68625B] transition-colors cursor-pointer"
+                  >
+                    Editar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 4 Cards de Resumo */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="bg-white p-4 rounded-2xl border border-[#EADBCE] shadow-2xs">
+                <span className="text-[11px] font-medium text-[#7D756C] block uppercase tracking-wider">
+                  Total em Presentes de Link
+                </span>
+                <span className="font-serif text-2xl sm:text-3xl font-semibold text-[#2D2A26] tabular-nums mt-1 block">
+                  R$ {totalLinkAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[11px] text-[#7D756C]">
+                  {totalLinkItems} {totalLinkItems === 1 ? 'item' : 'itens'} em {linkReservations.length} {linkReservations.length === 1 ? 'reserva' : 'reservas'}
+                </span>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/40 shadow-2xs">
+                <span className="text-[11px] font-medium text-amber-800 block uppercase tracking-wider">
+                  Aguardando Compra ⏳
+                </span>
+                <span className="font-serif text-2xl sm:text-3xl font-semibold text-amber-900 tabular-nums mt-1 block">
+                  R$ {linkReservedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[11px] text-amber-700 font-medium">
+                  {linkReservedStatusList.length} {linkReservedStatusList.length === 1 ? 'reserva pendente' : 'reservas pendentes'}
+                </span>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-sky-200 bg-sky-50/40 shadow-2xs">
+                <span className="text-[11px] font-medium text-sky-800 block uppercase tracking-wider">
+                  Comprado / A Caminho 🚚
+                </span>
+                <span className="font-serif text-2xl sm:text-3xl font-semibold text-sky-900 tabular-nums mt-1 block">
+                  R$ {linkPurchasedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[11px] text-sky-700 font-medium">
+                  {linkPurchasedStatusList.length} a caminho / comprados
+                </span>
+              </div>
+
+              <div className="bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 shadow-2xs">
+                <span className="text-[11px] font-medium text-emerald-800 block uppercase tracking-wider">
+                  Recebidos 🎁
+                </span>
+                <span className="font-serif text-2xl sm:text-3xl font-semibold text-emerald-800 tabular-nums mt-1 block">
+                  R$ {linkReceivedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[11px] text-emerald-700 font-medium">
+                  {linkReceivedStatusList.length} {linkReceivedStatusList.length === 1 ? 'entregue na casa' : 'entregues na casa'}
+                </span>
+              </div>
+            </div>
+
+            {/* Barra de Filtros e Busca */}
+            <div className="bg-white p-4 rounded-2xl border border-[#EADBCE] shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-[#A59E95] absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Buscar por convidado, WhatsApp ou nome do presente..."
+                  value={linkSearch}
+                  onChange={(e) => setLinkSearch(e.target.value)}
+                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs focus:bg-white focus:outline-none focus:border-[#C86D51] transition-colors"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={linkStatusFilter}
+                  onChange={(e) => setLinkStatusFilter(e.target.value as any)}
+                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] font-medium focus:outline-none focus:border-[#C86D51] cursor-pointer"
+                >
+                  <option value="all">Todos os status ({linkReservations.length})</option>
+                  <option value="reserved">Aguardando compra ({linkReservedStatusList.length})</option>
+                  <option value="purchased">Comprado / A caminho ({linkPurchasedStatusList.length})</option>
+                  <option value="received">Recebido ({linkReceivedStatusList.length})</option>
+                </select>
+
+                <div className="flex items-center rounded-xl border border-[#EADBCE] p-0.5 bg-[#FAF8F5]">
+                  <button
+                    type="button"
+                    onClick={() => setLinkViewMode('list')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                      linkViewMode === 'list'
+                        ? 'bg-white text-[#C86D51] shadow-2xs'
+                        : 'text-[#68625B] hover:text-[#2D2A26]'
+                    }`}
+                  >
+                    Lista
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLinkViewMode('byGift')}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                      linkViewMode === 'byGift'
+                        ? 'bg-white text-[#C86D51] shadow-2xs'
+                        : 'text-[#68625B] hover:text-[#2D2A26]'
+                    }`}
+                  >
+                    Por Presente
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Listagem de Reservas */}
+            {(() => {
+              const filteredLinkRes = linkReservations.filter((res) => {
+                const g = gifts.find((item) => item.id === res.giftId);
+                const gName = res.giftName || g?.name || '';
+                const matchSearch =
+                  res.guestName.toLowerCase().includes(linkSearch.toLowerCase()) ||
+                  (res.guestWhatsapp || '').includes(linkSearch) ||
+                  gName.toLowerCase().includes(linkSearch.toLowerCase());
+
+                const status = res.fulfillmentStatus || 'reserved';
+                const matchStatus = linkStatusFilter === 'all' || status === linkStatusFilter;
+
+                return matchSearch && matchStatus;
+              });
+
+              if (linkReservations.length === 0) {
+                return (
+                  <div className="text-center py-16 bg-white rounded-3xl border border-[#EADBCE] p-8 shadow-2xs">
+                    <Package className="w-12 h-12 text-[#C86D51] mx-auto mb-3 opacity-60" />
+                    <h3 className="font-serif text-lg font-medium text-[#2D2A26] mb-1">
+                      Nenhum presente de link reservado ainda
+                    </h3>
+                    <p className="text-xs text-[#7D756C] max-w-md mx-auto">
+                      Quando um convidado reservar um presente de loja, ele aparece aqui para você acompanhar a compra e a entrega.
+                    </p>
+                  </div>
+                );
+              }
+
+              if (filteredLinkRes.length === 0) {
+                return (
+                  <div className="text-center py-12 bg-white rounded-3xl border border-[#EADBCE] p-6 text-xs text-[#7D756C] shadow-2xs">
+                    Nenhuma reserva encontrada para a busca ou filtro selecionado.
+                  </div>
+                );
+              }
+
+              // ================= Modo 1: Por Presente =================
+              if (linkViewMode === 'byGift') {
+                const byGiftMap = new Map<string, { gift?: Gift; giftName: string; list: GiftReservation[] }>();
+
+                for (const res of filteredLinkRes) {
+                  const currentGift = gifts.find((g) => g.id === res.giftId);
+                  const key = res.giftId || res.giftName;
+                  if (!byGiftMap.has(key)) {
+                    byGiftMap.set(key, {
+                      gift: currentGift,
+                      giftName: res.giftName || currentGift?.name || 'Presente Especial',
+                      list: [],
+                    });
+                  }
+                  byGiftMap.get(key)!.list.push(res);
+                }
+
+                const giftGroups = Array.from(byGiftMap.values());
+
+                return (
+                  <div className="space-y-4">
+                    {giftGroups.map((group, groupIdx) => {
+                      const totalQuotasInGroup = group.list.reduce((acc, r) => acc + (r.quantity || 1), 0);
+                      const totalAmountInGroup = group.list.reduce((acc, r) => acc + getReservationAmount(r), 0);
+                      const purchaseUrl = group.gift?.purchaseUrl;
+
+                      return (
+                        <div key={groupIdx} className="bg-white rounded-3xl border border-[#EADBCE] p-5 shadow-2xs">
+                          {/* Cabeçalho do Presente */}
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#EADBCE]/60">
+                            <div className="flex items-center gap-3.5">
+                              {group.gift?.imageUrl ? (
+                                <img
+                                  src={group.gift.imageUrl}
+                                  alt={group.giftName}
+                                  className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE] shrink-0"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] flex items-center justify-center text-[#C86D51] shrink-0">
+                                  <GiftIcon className="w-5 h-5" />
+                                </div>
+                              )}
+                              <div>
+                                <h4 className="font-serif text-base font-semibold text-[#2D2A26] flex items-center gap-2">
+                                  <span>{group.giftName}</span>
+                                </h4>
+                                <div className="flex items-center gap-3 text-xs text-[#68625B] mt-0.5">
+                                  <span>
+                                    {group.list.length} {group.list.length === 1 ? 'reserva' : 'reservas'} ({totalQuotasInGroup} {totalQuotasInGroup === 1 ? 'unidade' : 'unidades'})
+                                  </span>
+                                  <span>•</span>
+                                  <strong className="text-[#C86D51]">
+                                    R$ {totalAmountInGroup.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                  {purchaseUrl && (
+                                    <>
+                                      <span>•</span>
+                                      <a
+                                        href={purchaseUrl}
+                                        target="_blank"
+                                        rel="noreferrer noopener"
+                                        className="inline-flex items-center gap-1 text-[#C86D51] hover:underline font-semibold"
+                                      >
+                                        <span>Link da Loja</span>
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Lista de convidados que escolheram este presente */}
+                          <div className="divide-y divide-[#F0E6DE] mt-2">
+                            {group.list.map((r) => {
+                              const amount = getReservationAmount(r);
+                              const currentStatus = r.fulfillmentStatus || 'reserved';
+                              const addressSnippet = settings.shippingStreet?.trim()
+                                ? ` Passando só para lembrar que a entrega pode ser feita neste endereço: ${settings.shippingStreet}${settings.shippingComplement ? `, ${settings.shippingComplement}` : ''} - ${settings.shippingCity || ''} (CEP ${settings.shippingZip || ''}).`
+                                : '';
+                              const whatsappText =
+                                currentStatus === 'received'
+                                  ? `Oi ${r.guestName}! O presente "${group.giftName}" chegou direitinho! Muito obrigada, amei! ❤️`
+                                  : currentStatus === 'purchased'
+                                  ? `Oi ${r.guestName}! Vi que o presente "${group.giftName}" já está a caminho 🎁 Muito obrigada pelo carinho!`
+                                  : `Oi ${r.guestName}! Vi que você escolheu o presente "${group.giftName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`;
+                              const whatsappUrl = formatWhatsappUrl(r.guestWhatsapp, whatsappText);
+
+                              return (
+                                <div key={r.id} className="py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                                  <div>
+                                    <div className="flex items-center gap-2">
+                                      <strong className="text-[#2D2A26]">{r.guestName}</strong>
+                                      <span className="text-[#7D756C] font-mono text-[11px]">
+                                        {formatPhoneDisplay(r.guestWhatsapp)}
+                                      </span>
+                                    </div>
+                                    <span className="text-[11px] text-[#68625B]">
+                                      {r.quantity} {r.quantity > 1 ? 'unidades' : 'unidade'} • <strong>R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                                      {r.trackingCode && <span className="ml-2 font-mono text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">Rastreio: {r.trackingCode}</span>}
+                                    </span>
+                                    {r.message && <p className="text-[11px] text-[#7D756C] italic mt-0.5">"{r.message}"</p>}
+                                  </div>
+
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    {/* Controle de status compacto */}
+                                    <div className="inline-flex rounded-lg border border-[#EADBCE] p-0.5 bg-[#FAF8F5] text-[10px]">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateFulfillment(r.id, 'reserved', r.guestName)}
+                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                                          currentStatus === 'reserved'
+                                            ? 'bg-amber-100 text-amber-900 font-semibold'
+                                            : 'text-[#68625B] hover:text-[#2D2A26]'
+                                        }`}
+                                      >
+                                        Aguardando
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateFulfillment(r.id, 'purchased', r.guestName)}
+                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                                          currentStatus === 'purchased'
+                                            ? 'bg-sky-100 text-sky-900 font-semibold'
+                                            : 'text-[#68625B] hover:text-[#2D2A26]'
+                                        }`}
+                                      >
+                                        Comprado
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUpdateFulfillment(r.id, 'received', r.guestName)}
+                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                                          currentStatus === 'received'
+                                            ? 'bg-emerald-100 text-emerald-900 font-semibold'
+                                            : 'text-[#68625B] hover:text-[#2D2A26]'
+                                        }`}
+                                      >
+                                        Recebido ✓
+                                      </button>
+                                    </div>
+
+                                    {whatsappUrl && (
+                                      <a
+                                        href={whatsappUrl}
+                                        target="_blank"
+                                        rel="noreferrer noopener"
+                                        className="h-7 px-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-1 font-semibold text-[11px] transition-colors"
+                                      >
+                                        <MessageSquare className="w-3 h-3 text-emerald-600" />
+                                        <span>WhatsApp</span>
+                                      </a>
+                                    )}
+
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteReservationClick(r)}
+                                      aria-label={`Remover reserva de ${r.guestName}`}
+                                      title="Remover reserva"
+                                      className="h-7 w-7 rounded-lg border border-[#EADBCE] text-[#A59E95] hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition-colors cursor-pointer"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              // ================= Modo 2: Lista Individual =================
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredLinkRes.map((res) => {
+                    const associatedGift = gifts.find((g) => g.id === res.giftId);
+                    const displayName = res.giftName || associatedGift?.name || 'Presente Especial';
+                    const amount = getReservationAmount(res);
+                    const currentStatus = res.fulfillmentStatus || 'reserved';
+                    const isEditingThis = editingTrackingId === res.id;
+                    const purchaseUrl = associatedGift?.purchaseUrl;
+
+                    const addressSnippet = settings.shippingStreet?.trim()
+                      ? ` Passando só para lembrar que a entrega pode ser feita neste endereço: ${settings.shippingStreet}${settings.shippingComplement ? `, ${settings.shippingComplement}` : ''} - ${settings.shippingCity || ''} (CEP ${settings.shippingZip || ''}).`
+                      : '';
+                    const whatsappText =
+                      currentStatus === 'received'
+                        ? `Oi ${res.guestName}! O presente "${displayName}" chegou direitinho! Muito obrigada, amei! ❤️`
+                        : currentStatus === 'purchased'
+                        ? `Oi ${res.guestName}! Vi que o presente "${displayName}" já está a caminho 🎁 Muito obrigada pelo carinho!`
+                        : `Oi ${res.guestName}! Vi que você escolheu o presente "${displayName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`;
+                    const whatsappUrl = formatWhatsappUrl(res.guestWhatsapp, whatsappText);
+
+                    return (
+                      <div
+                        key={res.id}
+                        className="bg-white rounded-3xl border border-[#EADBCE] p-5 shadow-2xs flex flex-col justify-between hover:shadow-xs transition-shadow"
+                      >
+                        <div className="space-y-3.5">
+                          {/* Top: Guest Info & Remove */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <strong className="font-serif text-base text-[#2D2A26] block leading-snug">
+                                {res.guestName}
+                              </strong>
+                              <span className="text-xs text-[#7D756C] font-mono">
+                                {formatPhoneDisplay(res.guestWhatsapp)}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReservationClick(res)}
+                              aria-label={`Remover reserva de ${res.guestName}`}
+                              title="Remover reserva"
+                              className="text-[#A59E95] hover:text-red-600 transition-colors cursor-pointer p-1 rounded-lg hover:bg-red-50"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Gift Card Snippet */}
+                          <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE]/80">
+                            {associatedGift?.imageUrl ? (
+                              <img
+                                src={associatedGift.imageUrl}
+                                alt={displayName}
+                                className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE] shrink-0"
+                              />
+                            ) : (
+                              <div className="w-12 h-12 rounded-xl bg-white border border-[#EADBCE] flex items-center justify-center text-[#C86D51] shrink-0">
+                                <Package className="w-5 h-5" />
+                              </div>
+                            )}
+
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs font-semibold text-[#2D2A26] block truncate" title={displayName}>
+                                {displayName}
+                              </span>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[11px] text-[#68625B]">
+                                  {res.quantity} {res.quantity > 1 ? 'cotas' : 'unidade'} = <strong className="text-[#C86D51]">R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                                </span>
+                              </div>
+                              {purchaseUrl && (
+                                <a
+                                  href={purchaseUrl}
+                                  target="_blank"
+                                  rel="noreferrer noopener"
+                                  className="inline-flex items-center gap-1 text-[11px] text-[#C86D51] hover:underline font-semibold mt-0.5"
+                                >
+                                  <span>Abrir link da loja</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Recado do Convidado */}
+                          {res.message && (
+                            <p className="text-xs text-[#68625B] italic bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EADBCE]/60">
+                              "{res.message}"
+                            </p>
+                          )}
+
+                          {/* Controle de Status em 3 Passos */}
+                          <div className="space-y-1.5 pt-1">
+                            <span className="text-[11px] font-semibold text-[#7D756C] block uppercase tracking-wider">
+                              Status do Presente:
+                            </span>
+                            <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#EADBCE] p-1 bg-[#FAF8F5] text-[11px]">
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateFulfillment(res.id, 'reserved', res.guestName)}
+                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                  currentStatus === 'reserved'
+                                    ? 'bg-amber-100 text-amber-900 font-semibold shadow-2xs'
+                                    : 'text-[#68625B] hover:text-[#2D2A26]'
+                                }`}
+                              >
+                                Aguardando
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateFulfillment(res.id, 'purchased', res.guestName)}
+                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                  currentStatus === 'purchased'
+                                    ? 'bg-sky-100 text-sky-900 font-semibold shadow-2xs'
+                                    : 'text-[#68625B] hover:text-[#2D2A26]'
+                                }`}
+                              >
+                                Comprado 🚚
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleUpdateFulfillment(res.id, 'received', res.guestName)}
+                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                  currentStatus === 'received'
+                                    ? 'bg-emerald-100 text-emerald-900 font-semibold shadow-2xs'
+                                    : 'text-[#68625B] hover:text-[#2D2A26]'
+                                }`}
+                              >
+                                Recebido ✓
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Campo de Rastreio & Observação */}
+                          <div className="pt-2 border-t border-[#EADBCE]/60 space-y-2 text-xs">
+                            {isEditingThis ? (
+                              <div className="p-3 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] space-y-2">
+                                <div>
+                                  <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-1">
+                                    Código de Rastreio (Correios / Transportadora):
+                                  </label>
+                                  <input
+                                    type="text"
+                                    maxLength={80}
+                                    placeholder="Ex: QB123456789BR"
+                                    value={trackingInput}
+                                    onChange={(e) => setTrackingInput(e.target.value)}
+                                    className="w-full h-8 px-2.5 rounded-lg border border-[#EADBCE] bg-white text-xs font-mono focus:outline-none focus:border-[#C86D51]"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-1">
+                                    Observação interna da anfitriã:
+                                  </label>
+                                  <textarea
+                                    maxLength={300}
+                                    rows={2}
+                                    placeholder="Ex: Convidado avisou que chega até sexta..."
+                                    value={orderNoteInput}
+                                    onChange={(e) => setOrderNoteInput(e.target.value)}
+                                    className="w-full p-2 rounded-lg border border-[#EADBCE] bg-white text-xs resize-none focus:outline-none focus:border-[#C86D51]"
+                                  />
+                                </div>
+
+                                <div className="flex items-center justify-end gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingTrackingId(null)}
+                                    className="h-7 px-2.5 rounded-lg border border-[#EADBCE] bg-white text-[11px] font-medium text-[#68625B] hover:text-[#2D2A26] cursor-pointer"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={savingTrackingId === res.id}
+                                    onClick={() => handleSaveTracking(res.id)}
+                                    className="h-7 px-3 rounded-lg bg-[#C86D51] hover:bg-[#A95339] text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                                  >
+                                    {savingTrackingId === res.id ? 'Salvando...' : 'Salvar'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between text-[#68625B]">
+                                <div className="space-y-0.5">
+                                  {res.trackingCode ? (
+                                    <div className="flex items-center gap-1.5 text-[11px]">
+                                      <Truck className="w-3.5 h-3.5 text-[#C86D51]" />
+                                      <span className="font-mono font-medium text-[#2D2A26]">{res.trackingCode}</span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[11px] text-[#A59E95] block">Sem código de rastreio</span>
+                                  )}
+                                  {res.orderNote && (
+                                    <p className="text-[11px] text-[#7D756C] truncate max-w-[220px]" title={res.orderNote}>
+                                      Nota: {res.orderNote}
+                                    </p>
+                                  )}
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleStartEditingTracking(res)}
+                                  className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer shrink-0"
+                                >
+                                  {res.trackingCode || res.orderNote ? 'Editar' : '+ Rastreio/Obs'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Bottom: Date & WhatsApp Action */}
+                        <div className="pt-3 mt-3 border-t border-[#EADBCE]/60 flex items-center justify-between text-[11px] text-[#A59E95]">
+                          <span>
+                            {res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}
+                          </span>
+
+                          {whatsappUrl && (
+                            <a
+                              href={whatsappUrl}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              className="text-[#25D366] hover:underline font-semibold flex items-center gap-1"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5" />
+                              <span>Falar no WhatsApp →</span>
+                            </a>
+                          )}
                         </div>
                       </div>
                     );

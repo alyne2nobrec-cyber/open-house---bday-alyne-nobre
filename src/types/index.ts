@@ -25,6 +25,8 @@ export interface Gift {
   updatedAt?: any;
 }
 
+export type GiftFulfillmentStatus = 'reserved' | 'purchased' | 'received';
+
 export interface GiftReservation {
   id: string;
   giftId: string;
@@ -38,6 +40,11 @@ export interface GiftReservation {
   paidAt?: string;
   message?: string;
   createdAt?: any;
+  fulfillmentStatus?: GiftFulfillmentStatus;
+  purchasedAt?: string;
+  receivedAt?: string;
+  trackingCode?: string;
+  orderNote?: string;
 }
 
 export type GuestStatus = 'confirmed' | 'declined' | 'pending';
