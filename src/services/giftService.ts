@@ -21,6 +21,7 @@ import alynePortrait from '../assets/images/alyne_portrait_1790969104126.jpg';
 import modernLivingRoom from '../assets/images/modern_living_room_1790969114799.jpg';
 import kitchenDining from '../assets/images/kitchen_dining_bar_1790969125087.jpg';
 import readingNook from '../assets/images/aesthetic_reading_nook_1790969135611.jpg';
+import type { ParsedCsvGift } from '../utils/csvGiftParser';
 
 const GIFTS_COLLECTION = 'gifts';
 const RESERVATIONS_COLLECTION = 'giftReservations';
@@ -697,3 +698,61 @@ export async function duplicateGift(gift: Gift): Promise<string> {
     status: 'available',
   });
 }
+
+export async function importGiftsFromList(
+  gifts: ParsedCsvGift[],
+  options?: { skipExisting?: boolean; existingGifts?: Gift[] }
+): Promise<{ created: number; skipped: number; failed: number }> {
+  const skipExisting = options?.skipExisting ?? true;
+  let created = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  const normalizeName = (str: string) =>
+    str
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim();
+
+  const existingList = options?.existingGifts ?? getLocalMergedGifts();
+  const existingNamesSet = new Set<string>();
+  existingList.forEach((g) => {
+    if (g.name) {
+      existingNamesSet.add(normalizeName(g.name));
+    }
+  });
+
+  for (const item of gifts) {
+    const norm = normalizeName(item.name);
+    if (skipExisting && existingNamesSet.has(norm)) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      await createGift({
+        name: item.name,
+        description: item.description || '',
+        category: item.category,
+        imageUrl: item.imageUrl || '',
+        type: item.type,
+        price: item.price,
+        totalQuantity: item.totalQuantity,
+        availableQuantity: item.totalQuantity,
+        reservedQuantity: 0,
+        purchaseUrl: item.purchaseUrl || '',
+        pixKey: item.pixKey || '',
+        status: item.totalQuantity > 0 ? 'available' : 'sold_out',
+      });
+      existingNamesSet.add(norm);
+      created++;
+    } catch (err) {
+      console.error('Error importing gift from CSV list:', item.name, err);
+      failed++;
+    }
+  }
+
+  return { created, skipped, failed };
+}
+
