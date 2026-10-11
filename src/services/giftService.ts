@@ -725,7 +725,19 @@ export async function importGiftsFromList(
 
   for (const item of gifts) {
     const norm = normalizeName(item.name);
-    if (skipExisting && existingNamesSet.has(norm)) {
+    const existingGift = existingList.find((gift) => normalizeName(gift.name) === norm);
+    if (skipExisting && existingGift) {
+      const fallbackImage = GIFT_IMAGE_FALLBACKS[existingGift.category] || modernLivingRoom;
+      const needsImageUrl = !existingGift.imageUrl || existingGift.imageUrl === fallbackImage;
+      if (item.imageUrl && needsImageUrl) {
+        try {
+          await updateGift(existingGift.id, { imageUrl: item.imageUrl });
+        } catch (err) {
+          console.error('Could not update image for existing gift from CSV:', item.name, err);
+          failed++;
+          continue;
+        }
+      }
       skipped++;
       continue;
     }
@@ -755,4 +767,3 @@ export async function importGiftsFromList(
 
   return { created, skipped, failed };
 }
-

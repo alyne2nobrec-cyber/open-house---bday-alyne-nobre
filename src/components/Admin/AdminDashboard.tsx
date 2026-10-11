@@ -2673,7 +2673,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <div className="max-h-56 overflow-y-auto rounded-xl border border-[#EADBCE] bg-white text-xs divide-y divide-[#F0E6DE]">
                   <div className="grid grid-cols-12 gap-2 p-2.5 bg-[#FAF8F5] text-[10px] font-semibold text-[#7D756C] uppercase tracking-wider sticky top-0 border-b border-[#EADBCE]">
-                    <div className="col-span-5">Nome</div>
+                    <div className="col-span-1 text-center">Foto</div>
+                    <div className="col-span-4">Nome</div>
                     <div className="col-span-2">Categoria</div>
                     <div className="col-span-2">Tipo</div>
                     <div className="col-span-2 text-right">Preço</div>
@@ -2681,7 +2682,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </div>
                   {giftCsvParsedGifts.slice(0, 10).map((g, idx) => (
                     <div key={idx} className="grid grid-cols-12 gap-2 p-2.5 items-center">
-                      <div className="col-span-5 truncate" title={g.name}>
+                      <div className="col-span-1 flex justify-center" title={g.imageUrl || 'Sem imagem no CSV'}>
+                        {g.imageUrl ? (
+                          <img
+                            src={g.imageUrl}
+                            alt=""
+                            className="h-8 w-8 rounded-md object-cover border border-[#EADBCE]"
+                          />
+                        ) : (
+                          <span className="text-[9px] text-[#A95339]">Sem foto</span>
+                        )}
+                      </div>
+                      <div className="col-span-4 truncate" title={g.name}>
                         <strong className="text-[#2D2A26] block truncate">{g.name}</strong>
                         {g.description && (
                           <span className="text-[10px] text-[#7D756C] block truncate">
