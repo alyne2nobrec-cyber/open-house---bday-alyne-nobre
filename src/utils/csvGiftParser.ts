@@ -242,6 +242,10 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
   if (hasHeader) {
     startIndex = 1;
     headerRow.forEach((col, idx) => {
+      if (col === 'reservadas' || col === 'disponiveis' || col === 'status') {
+        return;
+      }
+
       if (
         col === 'nome' ||
         col === 'name' ||
@@ -253,25 +257,34 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
       ) {
         nameIdx = idx;
       } else if (
+        col === 'descricao' ||
+        col === 'description' ||
         col.includes('desc') ||
         col.includes('detalhe') ||
         col.includes('obs')
       ) {
         descIdx = idx;
-      } else if (col.includes('categ')) {
+      } else if (col === 'categoria' || col === 'category' || col.includes('categ')) {
         catIdx = idx;
-      } else if (col.includes('tipo') || col === 'type') {
+      } else if (col === 'tipo' || col === 'type' || col.includes('tipo')) {
         typeIdx = idx;
-      } else if (col.includes('prec') || col.includes('valor') || col.includes('price')) {
+      } else if (col === 'preco' || col === 'valor' || col === 'price' || col.includes('prec') || col.includes('valor')) {
         priceIdx = idx;
       } else if (
+        col === 'quantidade' ||
+        col === 'qtd' ||
+        col === 'cotas' ||
+        col === 'total' ||
         col.includes('quant') ||
         col.includes('qtd') ||
-        col.includes('cota') ||
-        col.includes('total')
+        col.includes('cota')
       ) {
         qtyIdx = idx;
       } else if (
+        col === 'imagem' ||
+        col === 'imagem_url' ||
+        col === 'foto' ||
+        col === 'foto_url' ||
         col.includes('imagem') ||
         col.includes('foto') ||
         col.includes('image') ||
@@ -279,13 +292,17 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
       ) {
         imgIdx = idx;
       } else if (
+        col === 'link' ||
+        col === 'link_compra' ||
+        col === 'url' ||
+        col === 'loja' ||
         col.includes('link') ||
         col.includes('url') ||
         col.includes('loja') ||
         col.includes('compra')
       ) {
         urlIdx = idx;
-      } else if (col.includes('pix')) {
+      } else if (col === 'pix' || col === 'chave_pix' || col.includes('pix')) {
         pixIdx = idx;
       }
     });
