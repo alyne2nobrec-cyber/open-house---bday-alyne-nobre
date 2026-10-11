@@ -37,6 +37,7 @@ import {
   seedGiftsToFirestore,
   updateReservationPayment,
   deleteReservation,
+  importGiftsFromList,
 } from '../../services/giftService';
 import {
   addGuest,
@@ -49,6 +50,7 @@ import {
 import { updateEventSettings } from '../../services/settingsService';
 import { scrapeProductFromUrl } from '../../utils/scraper';
 import { parseGuestsCsv, downloadSampleGuestsCsv, ParsedCsvGuest } from '../../utils/csvGuestParser';
+import { parseGiftsCsv, downloadSampleGiftsCsv, ParsedCsvGift } from '../../utils/csvGiftParser';
 import { downloadCsvFile } from '../../utils/csvExport';
 import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
@@ -118,6 +120,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [csvImportMode, setCsvImportMode] = useState<'append' | 'replace'>('append');
   const [csvErrors, setCsvErrors] = useState<string[]>([]);
   const [csvImporting, setCsvImporting] = useState(false);
+
+  // Gift CSV Import Modal state
+  const [isGiftCsvImportModalOpen, setIsGiftCsvImportModalOpen] = useState(false);
+  const [giftCsvParsedGifts, setGiftCsvParsedGifts] = useState<ParsedCsvGift[]>([]);
+  const [giftCsvFileName, setGiftCsvFileName] = useState('');
+  const [giftCsvErrors, setGiftCsvErrors] = useState<string[]>([]);
+  const [giftCsvSkipExisting, setGiftCsvSkipExisting] = useState(true);
+  const [giftCsvImporting, setGiftCsvImporting] = useState(false);
 
   // Gift search and category filter
   const [giftSearch, setGiftSearch] = useState('');
@@ -345,6 +355,51 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       setCsvErrors([]);
     } finally {
       setCsvImporting(false);
+    }
+  };
+
+  const handleOpenGiftCsvModal = () => {
+    setGiftCsvParsedGifts([]);
+    setGiftCsvFileName('');
+    setGiftCsvErrors([]);
+    setGiftCsvSkipExisting(true);
+    setIsGiftCsvImportModalOpen(true);
+  };
+
+  const handleGiftCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setGiftCsvFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = (event.target?.result as string) || '';
+      const result = parseGiftsCsv(content);
+      setGiftCsvParsedGifts(result.gifts);
+      setGiftCsvErrors(result.errors);
+    };
+    reader.readAsText(file, 'utf-8');
+  };
+
+  const handleConfirmGiftCsvImport = async () => {
+    if (giftCsvParsedGifts.length === 0) return;
+    setGiftCsvImporting(true);
+    try {
+      const result = await importGiftsFromList(giftCsvParsedGifts, {
+        skipExisting: giftCsvSkipExisting,
+        existingGifts: gifts,
+      });
+      setIsGiftCsvImportModalOpen(false);
+      setGiftCsvParsedGifts([]);
+      setGiftCsvFileName('');
+      setGiftCsvErrors([]);
+      const feedbackMsg = `${result.created} presente(s) criado(s), ${result.skipped} ignorado(s) (já existiam)${result.failed > 0 ? `, ${result.failed} com erro` : ''}.`;
+      setActionFeedback(feedbackMsg);
+      window.setTimeout(() => setActionFeedback(null), 5000);
+    } catch (err: any) {
+      alert('Erro ao importar presentes: ' + (err?.message || 'Tente novamente'));
+    } finally {
+      setGiftCsvImporting(false);
     }
   };
 
@@ -595,6 +650,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
         
+        {/* Global Action Feedback Notification */}
+        {actionFeedback && activeTab !== 'whoGaveWhat' && (
+          <div className="mb-6 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 flex items-center justify-between gap-2 shadow-2xs">
+            <div className="flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{actionFeedback}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActionFeedback(null)}
+              className="text-emerald-700 hover:text-emerald-900 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* ===================== TAB 1: VISÃO GERAL ===================== */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
@@ -734,6 +806,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
 
                   <button
+                    onClick={handleOpenGiftCsvModal}
+                    className="h-12 px-4 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-[#C86D51]" />
+                    <span>Importar CSV</span>
+                  </button>
+
+                  <button
                     onClick={handleExportGuestsCsv}
                     className="h-12 px-4 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-[#2D2A26] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                   >
@@ -817,6 +897,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 >
                   <LinkIcon className="w-3.5 h-3.5 text-[#C86D51]" />
                   <span>Por Link</span>
+                </button>
+
+                <button
+                  onClick={handleOpenGiftCsvModal}
+                  className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-[#C86D51]" />
+                  <span>Importar CSV</span>
                 </button>
 
                 <button
@@ -2484,6 +2572,218 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   {csvImporting
                     ? 'Importando convidados...'
                     : `Confirmar e Importar ${csvParsedGuests.length} Convidados`}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ===================== MODAL: IMPORTAR PRESENTES CSV ===================== */}
+      {isGiftCsvImportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="relative w-full max-w-2xl bg-[#FAF8F5] border border-[#EADBCE] rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => {
+                setIsGiftCsvImportModalOpen(false);
+                setGiftCsvParsedGifts([]);
+                setGiftCsvFileName('');
+                setGiftCsvErrors([]);
+              }}
+              className="absolute top-5 right-5 h-8 w-8 rounded-full bg-[#F4EFEB] text-[#68625B] hover:text-[#2D2A26] flex items-center justify-center cursor-pointer transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="mb-5">
+              <div className="w-10 h-10 rounded-xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center mb-3">
+                <FileSpreadsheet className="w-5 h-5" />
+              </div>
+              <h3 className="font-serif text-xl sm:text-2xl font-medium text-[#2D2A26]">
+                Importar Lista de Presentes (CSV)
+              </h3>
+              <p className="text-xs text-[#68625B] mt-1">
+                Suba uma planilha salva em CSV para cadastrar vários presentes, cotas ou opções de Pix de uma única vez.
+              </p>
+            </div>
+
+            {/* Template download hint */}
+            <div className="mb-5 p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#EADBCE] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="text-[#68625B]">
+                <strong className="text-[#2D2A26] block">Ainda não tem a planilha no formato certo?</strong>
+                Baixe nosso modelo com as colunas certinhas (Nome, Descrição, Categoria, Tipo, Preço, Quantidade, etc.).
+              </div>
+              <button
+                type="button"
+                onClick={downloadSampleGiftsCsv}
+                className="h-8 px-3 rounded-lg border border-[#C86D51] text-[#C86D51] hover:bg-[#FBF0EB] font-semibold text-xs whitespace-nowrap cursor-pointer transition-colors"
+              >
+                Baixar Modelo CSV
+              </button>
+            </div>
+
+            {/* File Upload Box */}
+            <div className="mb-5">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1.5">
+                Selecione o arquivo .CSV do seu computador
+              </label>
+              <label className="flex flex-col items-center justify-center w-full h-32 px-4 border-2 border-dashed border-[#EADBCE] rounded-2xl cursor-pointer bg-white hover:bg-[#FAF8F5] transition-colors">
+                <Upload className="w-6 h-6 text-[#C86D51] mb-2" />
+                <span className="text-xs font-medium text-[#2D2A26] text-center">
+                  {giftCsvFileName ? `Arquivo selecionado: ${giftCsvFileName}` : 'Clique para escolher o arquivo CSV ou arraste aqui'}
+                </span>
+                <span className="text-[11px] text-[#A59E95] mt-1 text-center">
+                  Formatos suportados: .csv (separado por ponto e vírgula, vírgula ou tab)
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleGiftCsvFileChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+
+            {/* Parser Errors / Warnings Highlighted in Amber */}
+            {giftCsvErrors.length > 0 && (
+              <div className="mb-5 p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1.5">
+                <div className="flex items-center gap-2 font-semibold text-amber-800">
+                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Avisos e observações na planilha ({giftCsvErrors.length}):</span>
+                </div>
+                <div className="max-h-28 overflow-y-auto pl-6 space-y-1 text-[11px] text-amber-800">
+                  {giftCsvErrors.map((err, idx) => (
+                    <div key={idx}>• {err}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Preview of Parsed Gifts */}
+            {giftCsvParsedGifts.length > 0 && (
+              <div className="space-y-4 mb-5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-[#2D2A26]">
+                    Prévia: {giftCsvParsedGifts.length} presente(s) válido(s) identificado(s)
+                  </span>
+                  <span className="text-[11px] text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full font-semibold">
+                    Pronto para importar
+                  </span>
+                </div>
+
+                <div className="max-h-56 overflow-y-auto rounded-xl border border-[#EADBCE] bg-white text-xs divide-y divide-[#F0E6DE]">
+                  <div className="grid grid-cols-12 gap-2 p-2.5 bg-[#FAF8F5] text-[10px] font-semibold text-[#7D756C] uppercase tracking-wider sticky top-0 border-b border-[#EADBCE]">
+                    <div className="col-span-5">Nome</div>
+                    <div className="col-span-2">Categoria</div>
+                    <div className="col-span-2">Tipo</div>
+                    <div className="col-span-2 text-right">Preço</div>
+                    <div className="col-span-1 text-center">Qtd</div>
+                  </div>
+                  {giftCsvParsedGifts.slice(0, 10).map((g, idx) => (
+                    <div key={idx} className="grid grid-cols-12 gap-2 p-2.5 items-center">
+                      <div className="col-span-5 truncate" title={g.name}>
+                        <strong className="text-[#2D2A26] block truncate">{g.name}</strong>
+                        {g.description && (
+                          <span className="text-[10px] text-[#7D756C] block truncate">
+                            {g.description}
+                          </span>
+                        )}
+                      </div>
+                      <div className="col-span-2">
+                        <span className="capitalize px-1.5 py-0.5 rounded text-[10px] bg-[#FAF8F5] text-[#68625B] border border-[#EADBCE]">
+                          {g.category}
+                        </span>
+                      </div>
+                      <div className="col-span-2 text-[11px] text-[#68625B]">
+                        {g.type === 'shares'
+                          ? 'Cotas'
+                          : g.type === 'pix'
+                          ? 'Pix'
+                          : g.type === 'external'
+                          ? 'Link'
+                          : 'Produto'}
+                      </div>
+                      <div className="col-span-2 text-right font-medium text-[#2D2A26] text-[11px]">
+                        R$ {g.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </div>
+                      <div className="col-span-1 text-center text-[#2D2A26] font-medium text-[11px]">
+                        {g.totalQuantity}
+                      </div>
+                    </div>
+                  ))}
+                  {giftCsvParsedGifts.length > 10 && (
+                    <div className="p-2.5 text-center text-[11px] text-[#7D756C] bg-[#FAF8F5] font-medium">
+                      + {giftCsvParsedGifts.length - 10} outros presentes...
+                    </div>
+                  )}
+                </div>
+
+                {/* Skip Existing Option */}
+                <div className="p-3.5 rounded-2xl bg-white border border-[#EADBCE] text-xs">
+                  <label className="flex items-center gap-2.5 cursor-pointer text-[#2D2A26] select-none">
+                    <input
+                      type="checkbox"
+                      checked={giftCsvSkipExisting}
+                      onChange={(e) => setGiftCsvSkipExisting(e.target.checked)}
+                      className="w-4 h-4 rounded text-[#C86D51] accent-[#C86D51] cursor-pointer"
+                    />
+                    <span>
+                      <strong className="block">Pular presentes que já existem (mesmo nome)</strong>
+                      <span className="text-[11px] text-[#7D756C]">
+                        Recomendado: se marcado, não duplica presentes com o mesmo nome já cadastrados.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsGiftCsvImportModalOpen(false);
+                      setGiftCsvParsedGifts([]);
+                      setGiftCsvFileName('');
+                      setGiftCsvErrors([]);
+                    }}
+                    className="h-11 px-5 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-semibold text-[#68625B] hover:text-[#2D2A26] transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={giftCsvImporting || giftCsvParsedGifts.length === 0}
+                    onClick={handleConfirmGiftCsvImport}
+                    className="h-11 px-6 rounded-xl bg-[#C86D51] hover:bg-[#A95339] disabled:opacity-50 text-white text-xs font-semibold tracking-wide uppercase transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                  >
+                    {giftCsvImporting ? (
+                      <>
+                        <Clock className="w-4 h-4 animate-spin" />
+                        <span>Importando presentes...</span>
+                      </>
+                    ) : (
+                      <span>Importar {giftCsvParsedGifts.length} Presentes</span>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Cancel if file selected but 0 valid gifts */}
+            {giftCsvParsedGifts.length === 0 && giftCsvFileName && (
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGiftCsvImportModalOpen(false);
+                    setGiftCsvParsedGifts([]);
+                    setGiftCsvFileName('');
+                    setGiftCsvErrors([]);
+                  }}
+                  className="h-10 px-4 rounded-xl border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-semibold text-[#68625B] cursor-pointer"
+                >
+                  Fechar
                 </button>
               </div>
             )}
