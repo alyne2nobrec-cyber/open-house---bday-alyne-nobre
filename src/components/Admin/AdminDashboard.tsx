@@ -140,6 +140,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Reservation search and payment filter in "Quem me presenteou"
   const [resSearch, setResSearch] = useState('');
+  const [resTypeFilter, setResTypeFilter] = useState<'all' | 'pix' | 'link'>('all');
+  const [resStatusFilter, setResStatusFilter] = useState<string>('all');
   const [resPaymentFilter, setResPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [resViewMode, setResViewMode] = useState<'list' | 'byGift'>('list');
 
@@ -176,9 +178,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const totalPaidAmount = reservations.filter((r) => r.paid).reduce((acc, r) => acc + getReservationAmount(r), 0);
   const totalPendingAmount = Math.max(0, totalReservedAmount - totalPaidAmount);
 
-  // Calculations for Link Gifts tab
+  // Calculations for Link Gifts tab & Pix Gifts
   const isLinkGift = (g?: Gift) => Boolean(g && g.purchaseUrl && g.purchaseUrl.trim() !== '' && g.type !== 'pix');
   const linkReservations = reservations.filter((r) => isLinkGift(gifts.find((g) => g.id === r.giftId)));
+  const pixReservations = reservations.filter((r) => !isLinkGift(gifts.find((g) => g.id === r.giftId)));
 
   const linkReservedStatusList = linkReservations.filter((r) => !r.fulfillmentStatus || r.fulfillmentStatus === 'reserved');
   const linkPurchasedStatusList = linkReservations.filter((r) => r.fulfillmentStatus === 'purchased');
@@ -229,33 +232,58 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   // Safe Export Reservations CSV
   const handleExportReservationsCsv = () => {
+    if (reservations.length === 0) {
+      setActionFeedback('Nenhuma reserva para exportar.');
+      window.setTimeout(() => setActionFeedback(null), 3000);
+      return;
+    }
+
     const headers = [
       'Convidado',
       'WhatsApp',
       'Presente',
-      'Cotas',
+      'Tipo',
+      'Cotas/Qtd',
       'Valor Unitário (R$)',
       'Total (R$)',
       'Status Pagamento',
+      'Status Entrega',
+      'Código de Rastreio',
+      'Link da Loja',
       'Data Reserva',
       'Recado',
+      'Observação Interna',
     ];
 
     const rows = reservations.map((r) => {
       const g = gifts.find((item) => item.id === r.giftId);
+      const isLink = isLinkGift(g);
       const unit = typeof r.unitPrice === 'number' && r.unitPrice > 0 ? r.unitPrice : g?.price || 0;
       const total = getReservationAmount(r);
+
+      const deliveryStatus = isLink
+        ? r.fulfillmentStatus === 'received'
+          ? 'Recebido'
+          : r.fulfillmentStatus === 'purchased'
+          ? 'Comprado'
+          : 'Aguardando compra'
+        : 'N/A';
 
       return [
         r.guestName,
         r.guestWhatsapp,
-        r.giftName,
+        r.giftName || g?.name || 'Presente',
+        isLink ? 'Loja/Link' : 'Pix',
         r.quantity,
         unit.toFixed(2),
         total.toFixed(2),
-        r.paid ? 'Pago' : 'Pendente',
+        isLink ? (r.fulfillmentStatus === 'received' ? 'Recebido' : 'Compra em loja') : r.paid ? 'Pago' : 'Pendente',
+        deliveryStatus,
+        r.trackingCode || '',
+        g?.purchaseUrl || '',
         r.createdAt ? new Date(r.createdAt).toLocaleDateString('pt-BR') : '',
         r.message || '',
+        r.orderNote || '',
       ];
     });
 
@@ -775,17 +803,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             Quem está me presenteando? ({reservations.length})
-          </button>
-
-          <button
-            onClick={() => setActiveTab('linkGifts')}
-            className={`h-9 px-4 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer ${
-              activeTab === 'linkGifts'
-                ? 'bg-[#C86D51] text-white shadow-xs'
-                : 'text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F4EFEB]'
-            }`}
-          >
-            Presentes por Link ({linkReservations.length})
           </button>
 
           <button
@@ -1335,21 +1352,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
         )}
 
-        {/* ===================== TAB 3: QUEM ME PRESENTEOU (ARRECADAÇÃO PIX) ===================== */}
-        {activeTab === 'whoGaveWhat' && (
+        {/* ===================== TAB 3: QUEM ESTÁ ME PRESENTEANDO? (PIX + PRESENTES DE LOJA) ===================== */}
+        {(activeTab === 'whoGaveWhat' || (activeTab as string) === 'linkGifts') && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="font-serif text-2xl font-medium text-[#2D2A26]">
-                  Quem está me presenteando? (Arrecadação Pix)
+                  Quem está me presenteando?
                 </h2>
                 <p className="text-xs text-[#68625B]">
-                  Controle financeiro de presentes e cotas reservadas com marcação de pagamento e contatos.
+                  Acompanhe todas as reservas dos convidados — confirme pagamentos Pix/cotas e acompanhe a entrega de presentes comprados em lojas.
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
                   onClick={handleExportReservationsCsv}
                   className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
                 >
@@ -1359,23 +1377,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
             </div>
 
-            {/* Financial Summary Cards */}
+            {/* 4 Cards de Resumo Financeiro & Entregas */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE]">
+              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE] shadow-2xs">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C] block mb-1">
-                  Total Reservado
+                  Total Geral Reservado
                 </span>
                 <div className="font-serif text-xl sm:text-2xl font-bold text-[#2D2A26] tabular-nums">
                   R$ {totalReservedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <span className="text-[11px] text-[#A59E95] mt-0.5 block">
-                  {totalReservedQuotas} cotas em {reservations.length} reservas
+                  {totalReservedQuotas} cotas/itens em {reservations.length} reservas
                 </span>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white border border-emerald-200 bg-emerald-50/30">
+              <div className="p-4 rounded-2xl bg-white border border-emerald-200 bg-emerald-50/30 shadow-2xs">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-emerald-800 block mb-1">
-                  Confirmado / Pago 🎉
+                  Pix Confirmado 🎉
                 </span>
                 <div className="font-serif text-xl sm:text-2xl font-bold text-emerald-700 tabular-nums">
                   R$ {totalPaidAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1385,62 +1403,168 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </span>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white border border-amber-200 bg-amber-50/30">
+              <div className="p-4 rounded-2xl bg-white border border-amber-200 bg-amber-50/30 shadow-2xs">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-amber-800 block mb-1">
-                  Pendente de Pix ⏳
+                  Pix Pendente ⏳
                 </span>
                 <div className="font-serif text-xl sm:text-2xl font-bold text-amber-700 tabular-nums">
                   R$ {totalPendingAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
                 <span className="text-[11px] text-amber-800 mt-0.5 block">
-                  {reservations.filter((r) => !r.paid).length} aguardando comprovante
+                  {reservations.filter((r) => !r.paid && !isLinkGift(gifts.find((g) => g.id === r.giftId))).length} aguardando comprovante
                 </span>
               </div>
 
-              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE]">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C] block mb-1">
-                  Cotas Reservadas
+              <div className="p-4 rounded-2xl bg-white border border-sky-200 bg-sky-50/30 shadow-2xs">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-sky-800 block mb-1">
+                  Presentes de Loja 🎁
                 </span>
-                <div className="font-serif text-xl sm:text-2xl font-bold text-[#C86D51] tabular-nums">
-                  {totalReservedQuotas}
+                <div className="font-serif text-xl sm:text-2xl font-bold text-sky-700 tabular-nums">
+                  R$ {totalLinkAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </div>
-                <span className="text-[11px] text-[#7D756C] mt-0.5 block">
-                  cotas escolhidas
+                <span className="text-[11px] text-sky-800 mt-0.5 block">
+                  {linkReservations.length} reservas ({linkReceivedStatusList.length} recebidos • {linkPurchasedStatusList.length} a caminho)
                 </span>
               </div>
             </div>
 
+            {/* Endereço de Entrega para Presentes de Loja (se houver ou se cadastrado) */}
+            {(linkReservations.length > 0 || settings.shippingStreet?.trim()) && (
+              !settings.shippingStreet?.trim() ? (
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    <div className="text-xs">
+                      <strong className="font-semibold block text-amber-950">Endereço de entrega não cadastrado</strong>
+                      <span>Você possui presentes de loja, mas ainda não informou o endereço para entrega. Preencha na aba Personalizar Evento.</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('settings')}
+                    className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                  >
+                    Preencher Endereço →
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 rounded-2xl bg-white border border-[#EADBCE] shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[#FAF8F5] text-[#C86D51] flex items-center justify-center shrink-0 border border-[#EADBCE]">
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="font-semibold text-[#2D2A26] block">
+                        Endereço para entrega dos presentes de loja:
+                      </span>
+                      <span className="text-[#68625B]">
+                        {settings.shippingStreet}
+                        {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+                        {settings.shippingNeighborhood ? ` • ${settings.shippingNeighborhood}` : ''}
+                        {settings.shippingCity ? ` • ${settings.shippingCity}` : ''}
+                        {settings.shippingZip ? ` (CEP ${settings.shippingZip})` : ''}
+                        {settings.shippingRecipientName ? ` • A/C: ${settings.shippingRecipientName}` : ''}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleCopyShippingAddress}
+                      className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {copiedShipping ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="text-emerald-700 font-semibold">Copiado!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-[#C86D51]" />
+                          <span>Copiar endereço</span>
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('settings')}
+                      className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#68625B] transition-colors cursor-pointer"
+                    >
+                      Editar
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
             {/* Filter and Search Bar */}
-            <div className="flex flex-col sm:flex-row items-center gap-3">
-              <div className="relative flex-1 w-full">
+            <div className="bg-white p-4 rounded-2xl border border-[#EADBCE] shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
                 <input
                   type="text"
                   value={resSearch}
                   onChange={(e) => setResSearch(e.target.value)}
-                  placeholder="Buscar reserva por convidado, WhatsApp ou presente..."
-                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                  placeholder="Buscar reserva por convidado, WhatsApp, presente ou rastreio..."
+                  className="w-full h-10 pl-9 pr-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] focus:bg-white focus:outline-none focus:border-[#C86D51] transition-colors"
                 />
               </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto">
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filtro por Tipo */}
                 <select
-                  value={resPaymentFilter}
-                  onChange={(e) => setResPaymentFilter(e.target.value as any)}
-                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none flex-1 sm:flex-none"
+                  value={resTypeFilter}
+                  onChange={(e) => {
+                    setResTypeFilter(e.target.value as any);
+                    setResStatusFilter('all');
+                  }}
+                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] font-medium focus:outline-none focus:border-[#C86D51] cursor-pointer"
                 >
-                  <option value="all">Todos os Pagamentos ({reservations.length})</option>
-                  <option value="paid">Pagos / Confirmados ({reservations.filter((r) => r.paid).length})</option>
-                  <option value="pending">Pendentes ({reservations.filter((r) => !r.paid).length})</option>
+                  <option value="all">Todos os tipos ({reservations.length})</option>
+                  <option value="pix">Somente Pix / Cotas ({pixReservations.length})</option>
+                  <option value="link">Somente Presentes de Loja ({linkReservations.length})</option>
                 </select>
 
-                <div className="flex items-center rounded-xl border border-[#EADBCE] bg-white p-0.5">
+                {/* Filtro por Status Dinâmico */}
+                <select
+                  value={resStatusFilter}
+                  onChange={(e) => setResStatusFilter(e.target.value)}
+                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] font-medium focus:outline-none focus:border-[#C86D51] cursor-pointer"
+                >
+                  {resTypeFilter === 'all' && (
+                    <>
+                      <option value="all">Todos os status</option>
+                      <option value="paid">Pix: Confirmados ({reservations.filter((r) => r.paid && !isLinkGift(gifts.find((g) => g.id === r.giftId))).length})</option>
+                      <option value="pending">Pix: Pendentes ({reservations.filter((r) => !r.paid && !isLinkGift(gifts.find((g) => g.id === r.giftId))).length})</option>
+                      <option value="reserved">Loja: Aguardando ({linkReservedStatusList.length})</option>
+                      <option value="purchased">Loja: Comprado ({linkPurchasedStatusList.length})</option>
+                      <option value="received">Loja: Recebido ({linkReceivedStatusList.length})</option>
+                    </>
+                  )}
+                  {resTypeFilter === 'pix' && (
+                    <>
+                      <option value="all">Todos os status Pix</option>
+                      <option value="paid">Confirmados / Pagos</option>
+                      <option value="pending">Pendentes</option>
+                    </>
+                  )}
+                  {resTypeFilter === 'link' && (
+                    <>
+                      <option value="all">Todos os status de entrega</option>
+                      <option value="reserved">Aguardando compra ({linkReservedStatusList.length})</option>
+                      <option value="purchased">Comprado / A caminho ({linkPurchasedStatusList.length})</option>
+                      <option value="received">Recebido na casa ({linkReceivedStatusList.length})</option>
+                    </>
+                  )}
+                </select>
+
+                <div className="flex items-center rounded-xl border border-[#EADBCE] bg-[#FAF8F5] p-0.5">
                   <button
                     type="button"
                     onClick={() => setResViewMode('list')}
                     className={`h-9 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
                       resViewMode === 'list'
-                        ? 'bg-[#C86D51] text-white shadow-2xs'
+                        ? 'bg-white text-[#C86D51] shadow-2xs'
                         : 'text-[#68625B] hover:text-[#2D2A26]'
                     }`}
                   >
@@ -1451,7 +1575,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     onClick={() => setResViewMode('byGift')}
                     className={`h-9 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
                       resViewMode === 'byGift'
-                        ? 'bg-[#C86D51] text-white shadow-2xs'
+                        ? 'bg-white text-[#C86D51] shadow-2xs'
                         : 'text-[#68625B] hover:text-[#2D2A26]'
                     }`}
                   >
@@ -1469,40 +1593,61 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             )}
 
             {reservations.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-3xl border border-[#EADBCE] p-8">
+              <div className="text-center py-16 bg-white rounded-3xl border border-[#EADBCE] p-8 shadow-2xs">
                 <Heart className="w-10 h-10 text-[#C86D51] mx-auto mb-2 opacity-50" />
                 <p className="font-serif text-lg font-medium text-[#2D2A26]">
                   Nenhum presente reservado ainda
                 </p>
-                <p className="text-xs text-[#7D756C] mt-1">
-                  Assim que os convidados escolherem um presente, o nome, valor em R$ e comprovante aparecerão aqui.
+                <p className="text-xs text-[#7D756C] mt-1 max-w-md mx-auto">
+                  Assim que os convidados escolherem um presente (Pix ou de loja), o nome, valor em R$ e status aparecerão aqui.
                 </p>
               </div>
             ) : (() => {
               const filteredRes = reservations.filter((r) => {
+                const g = gifts.find((item) => item.id === r.giftId);
+                const isLink = isLinkGift(g);
+                const gName = r.giftName || g?.name || '';
                 const q = resSearch.toLowerCase().trim();
-                const matchesQuery =
+
+                const matchSearch =
                   !q ||
                   r.guestName.toLowerCase().includes(q) ||
-                  r.giftName.toLowerCase().includes(q) ||
-                  (r.guestWhatsapp && r.guestWhatsapp.includes(q));
+                  gName.toLowerCase().includes(q) ||
+                  (r.guestWhatsapp && r.guestWhatsapp.includes(q)) ||
+                  (r.trackingCode && r.trackingCode.toLowerCase().includes(q));
 
-                const matchesStatus =
-                  resPaymentFilter === 'all' ||
-                  (resPaymentFilter === 'paid' && r.paid) ||
-                  (resPaymentFilter === 'pending' && !r.paid);
+                const matchType =
+                  resTypeFilter === 'all' ||
+                  (resTypeFilter === 'pix' && !isLink) ||
+                  (resTypeFilter === 'link' && isLink);
 
-                return matchesQuery && matchesStatus;
+                let matchStatus = true;
+                if (resStatusFilter !== 'all') {
+                  if (resStatusFilter === 'paid') {
+                    matchStatus = !isLink && Boolean(r.paid);
+                  } else if (resStatusFilter === 'pending') {
+                    matchStatus = !isLink && !r.paid;
+                  } else if (resStatusFilter === 'reserved') {
+                    matchStatus = isLink && (!r.fulfillmentStatus || r.fulfillmentStatus === 'reserved');
+                  } else if (resStatusFilter === 'purchased') {
+                    matchStatus = isLink && r.fulfillmentStatus === 'purchased';
+                  } else if (resStatusFilter === 'received') {
+                    matchStatus = isLink && r.fulfillmentStatus === 'received';
+                  }
+                }
+
+                return matchSearch && matchType && matchStatus;
               });
 
               if (filteredRes.length === 0) {
                 return (
-                  <div className="text-center py-12 bg-white rounded-2xl border border-[#EADBCE] text-xs text-[#7D756C]">
+                  <div className="text-center py-12 bg-white rounded-2xl border border-[#EADBCE] text-xs text-[#7D756C] shadow-2xs">
                     Nenhuma reserva encontrada com este filtro ou busca.
                   </div>
                 );
               }
 
+              // ================= Modo 1: Por Presente =================
               if (resViewMode === 'byGift') {
                 const groupedMap = new Map<string, GiftReservation[]>();
                 filteredRes.forEach((r) => {
@@ -1516,9 +1661,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="space-y-4">
                     {Array.from(groupedMap.entries()).map(([giftKey, resList]) => {
                       const associatedGift = gifts.find((g) => g.id === giftKey || g.name === giftKey);
+                      const isLink = isLinkGift(associatedGift);
                       const giftDisplayName = resList[0]?.giftName || associatedGift?.name || giftKey;
                       const giftTotalValue = resList.reduce((acc, r) => acc + getReservationAmount(r), 0);
                       const giftTotalQuotas = resList.reduce((acc, r) => acc + (r.quantity || 1), 0);
+                      const purchaseUrl = associatedGift?.purchaseUrl;
 
                       return (
                         <div key={giftKey} className="bg-white rounded-2xl border border-[#EADBCE] p-5 shadow-2xs space-y-4">
@@ -1528,504 +1675,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <img
                                   src={associatedGift.imageUrl}
                                   alt={giftDisplayName}
-                                  className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE]"
-                                />
-                              ) : (
-                                <div className="w-12 h-12 rounded-xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center">
-                                  <GiftIcon className="w-5 h-5" />
-                                </div>
-                              )}
-                              <div>
-                                <h3 className="font-serif text-base font-semibold text-[#2D2A26]">
-                                  {giftDisplayName}
-                                </h3>
-                                <span className="text-xs text-[#7D756C]">
-                                  {giftTotalQuotas} {giftTotalQuotas > 1 ? 'cotas reservadas' : 'cota reservada'} por {resList.length} amigo(s)
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="text-right">
-                              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A59E95] block">
-                                Total Arrecadado
-                              </span>
-                              <span className="font-serif text-lg font-bold text-emerald-700">
-                                R$ {giftTotalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {resList.map((r) => {
-                              const amount = getReservationAmount(r);
-                              const whatsappUrl = formatWhatsappUrl(
-                                r.guestWhatsapp,
-                                `Oi ${r.guestName}! Vi que você escolheu o presente "${r.giftName}" para o meu apê novo! Muito obrigada pelo carinho! ❤️`
-                              );
-
-                              return (
-                                <div key={r.id} className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] text-xs space-y-2">
-                                  <div className="flex items-start justify-between">
-                                    <div>
-                                      <strong className="text-[#2D2A26] block">{r.guestName}</strong>
-                                      <span className="text-[11px] text-[#68625B] font-mono">
-                                        {formatPhoneDisplay(r.guestWhatsapp)}
-                                      </span>
-                                    </div>
-                                    <span
-                                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                                        r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                      }`}
-                                    >
-                                      {r.paid ? 'Pago ✓' : 'Pendente ⏳'}
-                                    </span>
-                                  </div>
-
-                                  <div className="flex items-center justify-between text-[#68625B] pt-1 border-t border-[#EADBCE]/50">
-                                    <span>
-                                      {r.quantity} {r.quantity > 1 ? 'cotas' : 'cota'} = <strong>R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleReservationPaid(r)}
-                                        className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer"
-                                      >
-                                        {r.paid ? 'Marcar Pendente' : 'Confirmar Pago'}
-                                      </button>
-                                      {whatsappUrl && (
-                                        <a
-                                          href={whatsappUrl}
-                                          target="_blank"
-                                          rel="noreferrer noopener"
-                                          className="text-[#25D366] hover:underline"
-                                        >
-                                          WhatsApp →
-                                        </a>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              }
-
-              // Individual List
-              return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredRes.map((res) => {
-                    const associatedGift = gifts.find((g) => g.id === res.giftId);
-                    const displayName = res.giftName || associatedGift?.name || 'Presente Especial';
-                    const amount = getReservationAmount(res);
-                    const whatsappUrl = formatWhatsappUrl(
-                      res.guestWhatsapp,
-                      `Oi ${res.guestName}! Vi seu presente (${displayName}) para o meu apê novo e passei para te dar um abraço bem quentinho e agradecer! ❤️`
-                    );
-
-                    return (
-                      <div
-                        key={res.id}
-                        className="bg-white p-5 rounded-2xl border border-[#EADBCE] shadow-2xs space-y-3 flex flex-col justify-between"
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <h4 className="font-serif text-base font-semibold text-[#2D2A26]">
-                                {res.guestName}
-                              </h4>
-                              <span className="text-xs text-[#68625B] font-mono">
-                                {formatPhoneDisplay(res.guestWhatsapp)}
-                              </span>
-                            </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
-                                res.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}
-                            >
-                              {res.paid ? 'Pago ✓' : 'Pendente ⏳'}
-                            </span>
-                          </div>
-
-                          {/* Gift Card */}
-                          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs flex items-center gap-3">
-                            {associatedGift?.imageUrl ? (
-                              <img
-                                src={associatedGift.imageUrl}
-                                alt={displayName}
-                                className="w-12 h-12 rounded-lg object-cover border border-[#EADBCE] shrink-0"
-                              />
-                            ) : (
-                              <div className="w-12 h-12 rounded-lg bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center shrink-0">
-                                <GiftIcon className="w-5 h-5" />
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <span className="text-[10px] text-[#A59E95] font-semibold uppercase tracking-wider block">
-                                {associatedGift?.category || 'Presente'}
-                              </span>
-                              <strong className="text-[#2D2A26] block truncate">
-                                {displayName}
-                              </strong>
-                              <div className="flex items-center justify-between text-[11px] text-[#7D756C] mt-0.5">
-                                <span>{res.quantity} {res.quantity > 1 ? 'cotas' : 'cota'}</span>
-                                <strong className="text-emerald-700 font-semibold">
-                                  R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                </strong>
-                              </div>
-                            </div>
-                          </div>
-
-                          {res.message && (
-                            <p className="text-xs italic text-[#5A544D] bg-[#FDFBF7] p-2.5 rounded-lg border border-[#F0E6DE]">
-                              "{res.message}"
-                            </p>
-                          )}
-                        </div>
-
-                        {/* Actions footer */}
-                        <div className="pt-2 border-t border-[#F0E6DE] space-y-2">
-                          <div className="flex items-center justify-between">
-                            <button
-                              type="button"
-                              onClick={() => handleToggleReservationPaid(res)}
-                              className={`h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                                res.paid
-                                  ? 'bg-stone-100 hover:bg-stone-200 text-stone-700'
-                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
-                              }`}
-                            >
-                              {res.paid ? 'Marcar como Pendente' : '✓ Confirmar Pagamento Pix'}
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteReservationClick(res)}
-                              title="Remover reserva"
-                              className="h-8 w-8 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between text-[11px] text-[#A59E95]">
-                            <span>
-                              {res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}
-                            </span>
-                            {whatsappUrl && (
-                              <a
-                                href={whatsappUrl}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="text-[#25D366] hover:underline font-medium"
-                              >
-                                Agradecer no WhatsApp →
-                              </a>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* ===================== TAB: PRESENTES POR LINK ===================== */}
-        {activeTab === 'linkGifts' && (
-          <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="font-serif text-2xl font-medium text-[#2D2A26]">
-                  Presentes por Link (Lojas & Marketplaces)
-                </h2>
-                <p className="text-xs text-[#68625B]">
-                  Acompanhe quem escolheu presentes de loja, se já comprou e se já chegou na casa.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleExportLinkReservationsCsv}
-                  className="h-10 px-3.5 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
-                >
-                  <Download className="w-4 h-4 text-[#68625B]" />
-                  <span>Exportar Relatório CSV</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Aviso de Endereço de Entrega */}
-            {!settings.shippingStreet?.trim() ? (
-              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-2xs">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="text-xs">
-                    <strong className="font-semibold block text-amber-950">Endereço de entrega não cadastrado</strong>
-                    <span>Você ainda não cadastrou o endereço de entrega. Preencha em Personalizar Evento para que os convidados saibam para onde enviar.</span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('settings')}
-                  className="h-8 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer shrink-0"
-                >
-                  Preencher Endereço →
-                </button>
-              </div>
-            ) : (
-              <div className="p-4 rounded-2xl bg-white border border-[#EADBCE] shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-                <div className="flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-[#FAF8F5] text-[#C86D51] flex items-center justify-center shrink-0 border border-[#EADBCE]">
-                    <Truck className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="font-semibold text-[#2D2A26] block">
-                      Endereço cadastrado para envio:
-                    </span>
-                    <span className="text-[#68625B]">
-                      {settings.shippingStreet}
-                      {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
-                      {settings.shippingNeighborhood ? ` • ${settings.shippingNeighborhood}` : ''}
-                      {settings.shippingCity ? ` • ${settings.shippingCity}` : ''}
-                      {settings.shippingZip ? ` (CEP ${settings.shippingZip})` : ''}
-                      {settings.shippingRecipientName ? ` • A/C: ${settings.shippingRecipientName}` : ''}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    onClick={handleCopyShippingAddress}
-                    className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#2D2A26] flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    {copiedShipping ? (
-                      <>
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        <span className="text-emerald-700 font-semibold">Copiado!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3.5 h-3.5 text-[#C86D51]" />
-                        <span>Copiar endereço</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('settings')}
-                    className="h-8 px-3 rounded-lg border border-[#EADBCE] hover:bg-[#FAF8F5] text-xs font-medium text-[#68625B] transition-colors cursor-pointer"
-                  >
-                    Editar
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* 4 Cards de Resumo */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="bg-white p-4 rounded-2xl border border-[#EADBCE] shadow-2xs">
-                <span className="text-[11px] font-medium text-[#7D756C] block uppercase tracking-wider">
-                  Total em Presentes de Link
-                </span>
-                <span className="font-serif text-2xl sm:text-3xl font-semibold text-[#2D2A26] tabular-nums mt-1 block">
-                  R$ {totalLinkAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
-                <span className="text-[11px] text-[#7D756C]">
-                  {totalLinkItems} {totalLinkItems === 1 ? 'item' : 'itens'} em {linkReservations.length} {linkReservations.length === 1 ? 'reserva' : 'reservas'}
-                </span>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-amber-200 bg-amber-50/40 shadow-2xs">
-                <span className="text-[11px] font-medium text-amber-800 block uppercase tracking-wider">
-                  Aguardando Compra ⏳
-                </span>
-                <span className="font-serif text-2xl sm:text-3xl font-semibold text-amber-900 tabular-nums mt-1 block">
-                  R$ {linkReservedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
-                <span className="text-[11px] text-amber-700 font-medium">
-                  {linkReservedStatusList.length} {linkReservedStatusList.length === 1 ? 'reserva pendente' : 'reservas pendentes'}
-                </span>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-sky-200 bg-sky-50/40 shadow-2xs">
-                <span className="text-[11px] font-medium text-sky-800 block uppercase tracking-wider">
-                  Comprado / A Caminho 🚚
-                </span>
-                <span className="font-serif text-2xl sm:text-3xl font-semibold text-sky-900 tabular-nums mt-1 block">
-                  R$ {linkPurchasedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
-                <span className="text-[11px] text-sky-700 font-medium">
-                  {linkPurchasedStatusList.length} a caminho / comprados
-                </span>
-              </div>
-
-              <div className="bg-white p-4 rounded-2xl border border-emerald-200 bg-emerald-50/40 shadow-2xs">
-                <span className="text-[11px] font-medium text-emerald-800 block uppercase tracking-wider">
-                  Recebidos 🎁
-                </span>
-                <span className="font-serif text-2xl sm:text-3xl font-semibold text-emerald-800 tabular-nums mt-1 block">
-                  R$ {linkReceivedAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                </span>
-                <span className="text-[11px] text-emerald-700 font-medium">
-                  {linkReceivedStatusList.length} {linkReceivedStatusList.length === 1 ? 'entregue na casa' : 'entregues na casa'}
-                </span>
-              </div>
-            </div>
-
-            {/* Barra de Filtros e Busca */}
-            <div className="bg-white p-4 rounded-2xl border border-[#EADBCE] shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#A59E95] absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Buscar por convidado, WhatsApp ou nome do presente..."
-                  value={linkSearch}
-                  onChange={(e) => setLinkSearch(e.target.value)}
-                  className="w-full h-10 pl-9 pr-3 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs focus:bg-white focus:outline-none focus:border-[#C86D51] transition-colors"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <select
-                  value={linkStatusFilter}
-                  onChange={(e) => setLinkStatusFilter(e.target.value as any)}
-                  className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] font-medium focus:outline-none focus:border-[#C86D51] cursor-pointer"
-                >
-                  <option value="all">Todos os status ({linkReservations.length})</option>
-                  <option value="reserved">Aguardando compra ({linkReservedStatusList.length})</option>
-                  <option value="purchased">Comprado / A caminho ({linkPurchasedStatusList.length})</option>
-                  <option value="received">Recebido ({linkReceivedStatusList.length})</option>
-                </select>
-
-                <div className="flex items-center rounded-xl border border-[#EADBCE] p-0.5 bg-[#FAF8F5]">
-                  <button
-                    type="button"
-                    onClick={() => setLinkViewMode('list')}
-                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                      linkViewMode === 'list'
-                        ? 'bg-white text-[#C86D51] shadow-2xs'
-                        : 'text-[#68625B] hover:text-[#2D2A26]'
-                    }`}
-                  >
-                    Lista
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setLinkViewMode('byGift')}
-                    className={`h-9 px-3 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                      linkViewMode === 'byGift'
-                        ? 'bg-white text-[#C86D51] shadow-2xs'
-                        : 'text-[#68625B] hover:text-[#2D2A26]'
-                    }`}
-                  >
-                    Por Presente
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Listagem de Reservas */}
-            {(() => {
-              const filteredLinkRes = linkReservations.filter((res) => {
-                const g = gifts.find((item) => item.id === res.giftId);
-                const gName = res.giftName || g?.name || '';
-                const matchSearch =
-                  res.guestName.toLowerCase().includes(linkSearch.toLowerCase()) ||
-                  (res.guestWhatsapp || '').includes(linkSearch) ||
-                  gName.toLowerCase().includes(linkSearch.toLowerCase());
-
-                const status = res.fulfillmentStatus || 'reserved';
-                const matchStatus = linkStatusFilter === 'all' || status === linkStatusFilter;
-
-                return matchSearch && matchStatus;
-              });
-
-              if (linkReservations.length === 0) {
-                return (
-                  <div className="text-center py-16 bg-white rounded-3xl border border-[#EADBCE] p-8 shadow-2xs">
-                    <Package className="w-12 h-12 text-[#C86D51] mx-auto mb-3 opacity-60" />
-                    <h3 className="font-serif text-lg font-medium text-[#2D2A26] mb-1">
-                      Nenhum presente de link reservado ainda
-                    </h3>
-                    <p className="text-xs text-[#7D756C] max-w-md mx-auto">
-                      Quando um convidado reservar um presente de loja, ele aparece aqui para você acompanhar a compra e a entrega.
-                    </p>
-                  </div>
-                );
-              }
-
-              if (filteredLinkRes.length === 0) {
-                return (
-                  <div className="text-center py-12 bg-white rounded-3xl border border-[#EADBCE] p-6 text-xs text-[#7D756C] shadow-2xs">
-                    Nenhuma reserva encontrada para a busca ou filtro selecionado.
-                  </div>
-                );
-              }
-
-              // ================= Modo 1: Por Presente =================
-              if (linkViewMode === 'byGift') {
-                const byGiftMap = new Map<string, { gift?: Gift; giftName: string; list: GiftReservation[] }>();
-
-                for (const res of filteredLinkRes) {
-                  const currentGift = gifts.find((g) => g.id === res.giftId);
-                  const key = res.giftId || res.giftName;
-                  if (!byGiftMap.has(key)) {
-                    byGiftMap.set(key, {
-                      gift: currentGift,
-                      giftName: res.giftName || currentGift?.name || 'Presente Especial',
-                      list: [],
-                    });
-                  }
-                  byGiftMap.get(key)!.list.push(res);
-                }
-
-                const giftGroups = Array.from(byGiftMap.values());
-
-                return (
-                  <div className="space-y-4">
-                    {giftGroups.map((group, groupIdx) => {
-                      const totalQuotasInGroup = group.list.reduce((acc, r) => acc + (r.quantity || 1), 0);
-                      const totalAmountInGroup = group.list.reduce((acc, r) => acc + getReservationAmount(r), 0);
-                      const purchaseUrl = group.gift?.purchaseUrl;
-
-                      return (
-                        <div key={groupIdx} className="bg-white rounded-3xl border border-[#EADBCE] p-5 shadow-2xs">
-                          {/* Cabeçalho do Presente */}
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#EADBCE]/60">
-                            <div className="flex items-center gap-3.5">
-                              {group.gift?.imageUrl ? (
-                                <img
-                                  src={group.gift.imageUrl}
-                                  alt={group.giftName}
                                   className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE] shrink-0"
                                 />
                               ) : (
-                                <div className="w-12 h-12 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] flex items-center justify-center text-[#C86D51] shrink-0">
+                                <div className="w-12 h-12 rounded-xl bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center shrink-0">
                                   <GiftIcon className="w-5 h-5" />
                                 </div>
                               )}
                               <div>
-                                <h4 className="font-serif text-base font-semibold text-[#2D2A26] flex items-center gap-2">
-                                  <span>{group.giftName}</span>
-                                </h4>
-                                <div className="flex items-center gap-3 text-xs text-[#68625B] mt-0.5">
-                                  <span>
-                                    {group.list.length} {group.list.length === 1 ? 'reserva' : 'reservas'} ({totalQuotasInGroup} {totalQuotasInGroup === 1 ? 'unidade' : 'unidades'})
+                                <div className="flex items-center gap-2">
+                                  <h3 className="font-serif text-base font-semibold text-[#2D2A26]">
+                                    {giftDisplayName}
+                                  </h3>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-[#EADBCE]/50 text-[#7D756C]">
+                                    {isLink ? 'Loja/Link' : 'Pix'}
                                   </span>
-                                  <span>•</span>
-                                  <strong className="text-[#C86D51]">
-                                    R$ {totalAmountInGroup.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                                  </strong>
-                                  {purchaseUrl && (
+                                </div>
+                                <div className="flex items-center gap-2 text-xs text-[#7D756C] mt-0.5 flex-wrap">
+                                  <span>
+                                    {giftTotalQuotas} {giftTotalQuotas > 1 ? (isLink ? 'unidades' : 'cotas') : (isLink ? 'unidade' : 'cota')} por {resList.length} amigo(s)
+                                  </span>
+                                  {isLink && purchaseUrl && (
                                     <>
                                       <span>•</span>
                                       <a
@@ -2042,99 +1712,154 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 </div>
                               </div>
                             </div>
+
+                            <div className="text-right">
+                              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#A59E95] block">
+                                Total Arrecadado / Reservado
+                              </span>
+                              <span className="font-serif text-lg font-bold text-emerald-700">
+                                R$ {giftTotalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
                           </div>
 
-                          {/* Lista de convidados que escolheram este presente */}
-                          <div className="divide-y divide-[#F0E6DE] mt-2">
-                            {group.list.map((r) => {
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {resList.map((r) => {
                               const amount = getReservationAmount(r);
-                              const currentStatus = r.fulfillmentStatus || 'reserved';
+                              const currentFulfillment = r.fulfillmentStatus || 'reserved';
                               const addressSnippet = settings.shippingStreet?.trim()
                                 ? ` Passando só para lembrar que a entrega pode ser feita neste endereço: ${settings.shippingStreet}${settings.shippingComplement ? `, ${settings.shippingComplement}` : ''} - ${settings.shippingCity || ''} (CEP ${settings.shippingZip || ''}).`
                                 : '';
-                              const whatsappText =
-                                currentStatus === 'received'
-                                  ? `Oi ${r.guestName}! O presente "${group.giftName}" chegou direitinho! Muito obrigada, amei! ❤️`
-                                  : currentStatus === 'purchased'
-                                  ? `Oi ${r.guestName}! Vi que o presente "${group.giftName}" já está a caminho 🎁 Muito obrigada pelo carinho!`
-                                  : `Oi ${r.guestName}! Vi que você escolheu o presente "${group.giftName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`;
+                              const whatsappText = isLink
+                                ? currentFulfillment === 'received'
+                                  ? `Oi ${r.guestName}! O presente "${giftDisplayName}" chegou direitinho! Muito obrigada, amei! ❤️`
+                                  : currentFulfillment === 'purchased'
+                                  ? `Oi ${r.guestName}! Vi que o presente "${giftDisplayName}" já está a caminho 🎁 Muito obrigada pelo carinho!`
+                                  : `Oi ${r.guestName}! Vi que você escolheu o presente "${giftDisplayName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`
+                                : `Oi ${r.guestName}! Vi que você escolheu o presente "${r.giftName}" para o meu apê novo! Muito obrigada pelo carinho! ❤️`;
                               const whatsappUrl = formatWhatsappUrl(r.guestWhatsapp, whatsappText);
 
                               return (
-                                <div key={r.id} className="py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                                  <div>
-                                    <div className="flex items-center gap-2">
-                                      <strong className="text-[#2D2A26]">{r.guestName}</strong>
-                                      <span className="text-[#7D756C] font-mono text-[11px]">
+                                <div key={r.id} className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] text-xs space-y-2">
+                                  <div className="flex items-start justify-between">
+                                    <div>
+                                      <strong className="text-[#2D2A26] block">{r.guestName}</strong>
+                                      <span className="text-[11px] text-[#68625B] font-mono">
                                         {formatPhoneDisplay(r.guestWhatsapp)}
                                       </span>
                                     </div>
-                                    <span className="text-[11px] text-[#68625B]">
-                                      {r.quantity} {r.quantity > 1 ? 'unidades' : 'unidade'} • <strong>R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
-                                      {r.trackingCode && <span className="ml-2 font-mono text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">Rastreio: {r.trackingCode}</span>}
-                                    </span>
-                                    {r.message && <p className="text-[11px] text-[#7D756C] italic mt-0.5">"{r.message}"</p>}
+                                    {isLink ? (
+                                      <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                          currentFulfillment === 'received'
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : currentFulfillment === 'purchased'
+                                            ? 'bg-sky-100 text-sky-800'
+                                            : 'bg-amber-100 text-amber-800'
+                                        }`}
+                                      >
+                                        {currentFulfillment === 'received'
+                                          ? 'Recebido ✓'
+                                          : currentFulfillment === 'purchased'
+                                          ? 'Comprado 🚚'
+                                          : 'Aguardando ⏳'}
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                                          r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                        }`}
+                                      >
+                                        {r.paid ? 'Pago ✓' : 'Pendente ⏳'}
+                                      </span>
+                                    )}
                                   </div>
 
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    {/* Controle de status compacto */}
-                                    <div className="inline-flex rounded-lg border border-[#EADBCE] p-0.5 bg-[#FAF8F5] text-[10px]">
+                                  {r.message && (
+                                    <p className="text-[11px] text-[#7D756C] italic bg-white p-2 rounded-lg border border-[#EADBCE]/50">
+                                      "{r.message}"
+                                    </p>
+                                  )}
+
+                                  {isLink && (
+                                    <div className="flex items-center gap-1.5 pt-1 flex-wrap">
+                                      <div className="inline-flex rounded-lg border border-[#EADBCE] p-0.5 bg-white text-[10px]">
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateFulfillment(r.id, 'reserved', r.guestName)}
+                                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                                            currentFulfillment === 'reserved'
+                                              ? 'bg-amber-100 text-amber-900 font-semibold'
+                                              : 'text-[#68625B]'
+                                          }`}
+                                        >
+                                          Aguardando
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateFulfillment(r.id, 'purchased', r.guestName)}
+                                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                                            currentFulfillment === 'purchased'
+                                              ? 'bg-sky-100 text-sky-900 font-semibold'
+                                              : 'text-[#68625B]'
+                                          }`}
+                                        >
+                                          Comprado
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleUpdateFulfillment(r.id, 'received', r.guestName)}
+                                          className={`px-2 py-0.5 rounded cursor-pointer ${
+                                            currentFulfillment === 'received'
+                                              ? 'bg-emerald-100 text-emerald-900 font-semibold'
+                                              : 'text-[#68625B]'
+                                          }`}
+                                        >
+                                          Recebido ✓
+                                        </button>
+                                      </div>
+                                      {r.trackingCode && (
+                                        <span className="font-mono text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">
+                                          Rastreio: {r.trackingCode}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center justify-between text-[#68625B] pt-1 border-t border-[#EADBCE]/50">
+                                    <span>
+                                      {r.quantity} {r.quantity > 1 ? (isLink ? 'itens' : 'cotas') : (isLink ? 'item' : 'cota')} = <strong>R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      {!isLink && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleReservationPaid(r)}
+                                          className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer"
+                                        >
+                                          {r.paid ? 'Marcar Pendente' : 'Confirmar Pago'}
+                                        </button>
+                                      )}
+                                      {whatsappUrl && (
+                                        <a
+                                          href={whatsappUrl}
+                                          target="_blank"
+                                          rel="noreferrer noopener"
+                                          className="text-[#25D366] hover:underline font-medium"
+                                        >
+                                          WhatsApp →
+                                        </a>
+                                      )}
                                       <button
                                         type="button"
-                                        onClick={() => handleUpdateFulfillment(r.id, 'reserved', r.guestName)}
-                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
-                                          currentStatus === 'reserved'
-                                            ? 'bg-amber-100 text-amber-900 font-semibold'
-                                            : 'text-[#68625B] hover:text-[#2D2A26]'
-                                        }`}
+                                        onClick={() => handleDeleteReservationClick(r)}
+                                        className="text-stone-400 hover:text-red-600 cursor-pointer p-0.5"
+                                        title="Remover reserva"
+                                        aria-label={`Remover reserva de ${r.guestName}`}
                                       >
-                                        Aguardando
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateFulfillment(r.id, 'purchased', r.guestName)}
-                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
-                                          currentStatus === 'purchased'
-                                            ? 'bg-sky-100 text-sky-900 font-semibold'
-                                            : 'text-[#68625B] hover:text-[#2D2A26]'
-                                        }`}
-                                      >
-                                        Comprado
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleUpdateFulfillment(r.id, 'received', r.guestName)}
-                                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
-                                          currentStatus === 'received'
-                                            ? 'bg-emerald-100 text-emerald-900 font-semibold'
-                                            : 'text-[#68625B] hover:text-[#2D2A26]'
-                                        }`}
-                                      >
-                                        Recebido ✓
+                                        <Trash2 className="w-3.5 h-3.5" />
                                       </button>
                                     </div>
-
-                                    {whatsappUrl && (
-                                      <a
-                                        href={whatsappUrl}
-                                        target="_blank"
-                                        rel="noreferrer noopener"
-                                        className="h-7 px-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 flex items-center gap-1 font-semibold text-[11px] transition-colors"
-                                      >
-                                        <MessageSquare className="w-3 h-3 text-emerald-600" />
-                                        <span>WhatsApp</span>
-                                      </a>
-                                    )}
-
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteReservationClick(r)}
-                                      aria-label={`Remover reserva de ${r.guestName}`}
-                                      title="Remover reserva"
-                                      className="h-7 w-7 rounded-lg border border-[#EADBCE] text-[#A59E95] hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition-colors cursor-pointer"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
                                   </div>
                                 </div>
                               );
@@ -2150,238 +1875,307 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               // ================= Modo 2: Lista Individual =================
               return (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredLinkRes.map((res) => {
+                  {filteredRes.map((res) => {
                     const associatedGift = gifts.find((g) => g.id === res.giftId);
+                    const isLink = isLinkGift(associatedGift);
                     const displayName = res.giftName || associatedGift?.name || 'Presente Especial';
                     const amount = getReservationAmount(res);
-                    const currentStatus = res.fulfillmentStatus || 'reserved';
+                    const currentFulfillment = res.fulfillmentStatus || 'reserved';
                     const isEditingThis = editingTrackingId === res.id;
                     const purchaseUrl = associatedGift?.purchaseUrl;
 
                     const addressSnippet = settings.shippingStreet?.trim()
                       ? ` Passando só para lembrar que a entrega pode ser feita neste endereço: ${settings.shippingStreet}${settings.shippingComplement ? `, ${settings.shippingComplement}` : ''} - ${settings.shippingCity || ''} (CEP ${settings.shippingZip || ''}).`
                       : '';
-                    const whatsappText =
-                      currentStatus === 'received'
+
+                    const whatsappText = isLink
+                      ? currentFulfillment === 'received'
                         ? `Oi ${res.guestName}! O presente "${displayName}" chegou direitinho! Muito obrigada, amei! ❤️`
-                        : currentStatus === 'purchased'
+                        : currentFulfillment === 'purchased'
                         ? `Oi ${res.guestName}! Vi que o presente "${displayName}" já está a caminho 🎁 Muito obrigada pelo carinho!`
-                        : `Oi ${res.guestName}! Vi que você escolheu o presente "${displayName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`;
+                        : `Oi ${res.guestName}! Vi que você escolheu o presente "${displayName}" ❤️${addressSnippet} Qualquer dúvida é só chamar!`
+                      : `Oi ${res.guestName}! Vi seu presente (${displayName}) para o meu apê novo e passei para te dar um abraço bem quentinho e agradecer! ❤️`;
+
                     const whatsappUrl = formatWhatsappUrl(res.guestWhatsapp, whatsappText);
 
                     return (
                       <div
                         key={res.id}
-                        className="bg-white rounded-3xl border border-[#EADBCE] p-5 shadow-2xs flex flex-col justify-between hover:shadow-xs transition-shadow"
+                        className="bg-white p-5 rounded-2xl border border-[#EADBCE] shadow-2xs space-y-3 flex flex-col justify-between hover:shadow-xs transition-shadow"
                       >
-                        <div className="space-y-3.5">
-                          {/* Top: Guest Info & Remove */}
+                        <div className="space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div>
-                              <strong className="font-serif text-base text-[#2D2A26] block leading-snug">
+                              <h4 className="font-serif text-base font-semibold text-[#2D2A26]">
                                 {res.guestName}
-                              </strong>
-                              <span className="text-xs text-[#7D756C] font-mono">
+                              </h4>
+                              <span className="text-xs text-[#68625B] font-mono">
                                 {formatPhoneDisplay(res.guestWhatsapp)}
                               </span>
                             </div>
 
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteReservationClick(res)}
-                              aria-label={`Remover reserva de ${res.guestName}`}
-                              title="Remover reserva"
-                              className="text-[#A59E95] hover:text-red-600 transition-colors cursor-pointer p-1 rounded-lg hover:bg-red-50"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isLink ? (
+                                <span
+                                  className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                                    currentFulfillment === 'received'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : currentFulfillment === 'purchased'
+                                      ? 'bg-sky-100 text-sky-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {currentFulfillment === 'received'
+                                    ? '🎁 Recebido ✓'
+                                    : currentFulfillment === 'purchased'
+                                    ? '🚚 Comprado'
+                                    : '⏳ Aguardando'}
+                                </span>
+                              ) : (
+                                <span
+                                  className={`px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                                    res.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}
+                                >
+                                  {res.paid ? 'Pix • Pago ✓' : 'Pix • Pendente ⏳'}
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          {/* Gift Card Snippet */}
-                          <div className="flex items-center gap-3 p-2.5 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE]/80">
+                          {/* Gift Card */}
+                          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#F0E6DE] text-xs flex items-center gap-3">
                             {associatedGift?.imageUrl ? (
                               <img
                                 src={associatedGift.imageUrl}
                                 alt={displayName}
-                                className="w-12 h-12 rounded-xl object-cover border border-[#EADBCE] shrink-0"
+                                className="w-12 h-12 rounded-lg object-cover border border-[#EADBCE] shrink-0"
                               />
                             ) : (
-                              <div className="w-12 h-12 rounded-xl bg-white border border-[#EADBCE] flex items-center justify-center text-[#C86D51] shrink-0">
-                                <Package className="w-5 h-5" />
+                              <div className="w-12 h-12 rounded-lg bg-[#F0E6DE] text-[#C86D51] flex items-center justify-center shrink-0">
+                                <GiftIcon className="w-5 h-5" />
                               </div>
                             )}
-
                             <div className="flex-1 min-w-0">
-                              <span className="text-xs font-semibold text-[#2D2A26] block truncate" title={displayName}>
-                                {displayName}
-                              </span>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[11px] text-[#68625B]">
-                                  {res.quantity} {res.quantity > 1 ? 'cotas' : 'unidade'} = <strong className="text-[#C86D51]">R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-[#A59E95] font-semibold uppercase tracking-wider block">
+                                  {associatedGift?.category || 'Presente'}
+                                </span>
+                                <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-[#EADBCE]/50 text-[#7D756C]">
+                                  {isLink ? 'Loja/Link' : 'Pix'}
                                 </span>
                               </div>
-                              {purchaseUrl && (
+                              <strong className="text-[#2D2A26] block truncate" title={displayName}>
+                                {displayName}
+                              </strong>
+                              <div className="flex items-center justify-between text-[11px] text-[#7D756C] mt-0.5">
+                                <span>{res.quantity} {res.quantity > 1 ? (isLink ? 'itens' : 'cotas') : (isLink ? 'item' : 'cota')}</span>
+                                <strong className="text-emerald-700 font-semibold">
+                                  R$ {amount.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </strong>
+                              </div>
+                              {isLink && purchaseUrl && (
                                 <a
                                   href={purchaseUrl}
                                   target="_blank"
                                   rel="noreferrer noopener"
-                                  className="inline-flex items-center gap-1 text-[11px] text-[#C86D51] hover:underline font-semibold mt-0.5"
+                                  className="inline-flex items-center gap-1 text-[11px] text-[#C86D51] hover:underline font-semibold mt-1"
                                 >
-                                  <span>Abrir link da loja</span>
+                                  <span>Link da Loja</span>
                                   <ExternalLink className="w-3 h-3" />
                                 </a>
                               )}
                             </div>
                           </div>
 
-                          {/* Recado do Convidado */}
+                          {/* Mensagem do Convidado */}
                           {res.message && (
-                            <p className="text-xs text-[#68625B] italic bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EADBCE]/60">
+                            <p className="text-xs italic text-[#5A544D] bg-[#FDFBF7] p-2.5 rounded-lg border border-[#F0E6DE]">
                               "{res.message}"
                             </p>
                           )}
 
-                          {/* Controle de Status em 3 Passos */}
-                          <div className="space-y-1.5 pt-1">
-                            <span className="text-[11px] font-semibold text-[#7D756C] block uppercase tracking-wider">
-                              Status do Presente:
-                            </span>
-                            <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#EADBCE] p-1 bg-[#FAF8F5] text-[11px]">
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateFulfillment(res.id, 'reserved', res.guestName)}
-                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
-                                  currentStatus === 'reserved'
-                                    ? 'bg-amber-100 text-amber-900 font-semibold shadow-2xs'
-                                    : 'text-[#68625B] hover:text-[#2D2A26]'
-                                }`}
-                              >
-                                Aguardando
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateFulfillment(res.id, 'purchased', res.guestName)}
-                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
-                                  currentStatus === 'purchased'
-                                    ? 'bg-sky-100 text-sky-900 font-semibold shadow-2xs'
-                                    : 'text-[#68625B] hover:text-[#2D2A26]'
-                                }`}
-                              >
-                                Comprado 🚚
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleUpdateFulfillment(res.id, 'received', res.guestName)}
-                                className={`py-1.5 px-1 rounded-lg text-center transition-colors cursor-pointer ${
-                                  currentStatus === 'received'
-                                    ? 'bg-emerald-100 text-emerald-900 font-semibold shadow-2xs'
-                                    : 'text-[#68625B] hover:text-[#2D2A26]'
-                                }`}
-                              >
-                                Recebido ✓
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Campo de Rastreio & Observação */}
-                          <div className="pt-2 border-t border-[#EADBCE]/60 space-y-2 text-xs">
-                            {isEditingThis ? (
-                              <div className="p-3 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] space-y-2">
-                                <div>
-                                  <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-1">
-                                    Código de Rastreio (Correios / Transportadora):
-                                  </label>
-                                  <input
-                                    type="text"
-                                    maxLength={80}
-                                    placeholder="Ex: QB123456789BR"
-                                    value={trackingInput}
-                                    onChange={(e) => setTrackingInput(e.target.value)}
-                                    className="w-full h-8 px-2.5 rounded-lg border border-[#EADBCE] bg-white text-xs font-mono focus:outline-none focus:border-[#C86D51]"
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-1">
-                                    Observação interna da anfitriã:
-                                  </label>
-                                  <textarea
-                                    maxLength={300}
-                                    rows={2}
-                                    placeholder="Ex: Convidado avisou que chega até sexta..."
-                                    value={orderNoteInput}
-                                    onChange={(e) => setOrderNoteInput(e.target.value)}
-                                    className="w-full p-2 rounded-lg border border-[#EADBCE] bg-white text-xs resize-none focus:outline-none focus:border-[#C86D51]"
-                                  />
-                                </div>
-
-                                <div className="flex items-center justify-end gap-2 pt-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => setEditingTrackingId(null)}
-                                    className="h-7 px-2.5 rounded-lg border border-[#EADBCE] bg-white text-[11px] font-medium text-[#68625B] hover:text-[#2D2A26] cursor-pointer"
-                                  >
-                                    Cancelar
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={savingTrackingId === res.id}
-                                    onClick={() => handleSaveTracking(res.id)}
-                                    className="h-7 px-3 rounded-lg bg-[#C86D51] hover:bg-[#A95339] text-white text-[11px] font-semibold transition-colors cursor-pointer"
-                                  >
-                                    {savingTrackingId === res.id ? 'Salvando...' : 'Salvar'}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-center justify-between text-[#68625B]">
-                                <div className="space-y-0.5">
-                                  {res.trackingCode ? (
-                                    <div className="flex items-center gap-1.5 text-[11px]">
-                                      <Truck className="w-3.5 h-3.5 text-[#C86D51]" />
-                                      <span className="font-mono font-medium text-[#2D2A26]">{res.trackingCode}</span>
-                                    </div>
-                                  ) : (
-                                    <span className="text-[11px] text-[#A59E95] block">Sem código de rastreio</span>
-                                  )}
-                                  {res.orderNote && (
-                                    <p className="text-[11px] text-[#7D756C] truncate max-w-[220px]" title={res.orderNote}>
-                                      Nota: {res.orderNote}
-                                    </p>
-                                  )}
-                                </div>
-
+                          {/* Se for presente de loja: Controles de Entrega & Rastreio */}
+                          {isLink && (
+                            <div className="pt-1 space-y-2">
+                              <span className="text-[10px] font-semibold text-[#7D756C] block uppercase tracking-wider">
+                                Status da Compra / Envio:
+                              </span>
+                              <div className="grid grid-cols-3 gap-1 rounded-xl border border-[#EADBCE] p-1 bg-[#FAF8F5] text-[11px]">
                                 <button
                                   type="button"
-                                  onClick={() => handleStartEditingTracking(res)}
-                                  className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer shrink-0"
+                                  onClick={() => handleUpdateFulfillment(res.id, 'reserved', res.guestName)}
+                                  className={`py-1 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                    currentFulfillment === 'reserved'
+                                      ? 'bg-amber-100 text-amber-900 font-semibold shadow-2xs'
+                                      : 'text-[#68625B] hover:text-[#2D2A26]'
+                                  }`}
                                 >
-                                  {res.trackingCode || res.orderNote ? 'Editar' : '+ Rastreio/Obs'}
+                                  Aguardando
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateFulfillment(res.id, 'purchased', res.guestName)}
+                                  className={`py-1 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                    currentFulfillment === 'purchased'
+                                      ? 'bg-sky-100 text-sky-900 font-semibold shadow-2xs'
+                                      : 'text-[#68625B] hover:text-[#2D2A26]'
+                                  }`}
+                                >
+                                  Comprado 🚚
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleUpdateFulfillment(res.id, 'received', res.guestName)}
+                                  className={`py-1 px-1 rounded-lg text-center transition-colors cursor-pointer ${
+                                    currentFulfillment === 'received'
+                                      ? 'bg-emerald-100 text-emerald-900 font-semibold shadow-2xs'
+                                      : 'text-[#68625B] hover:text-[#2D2A26]'
+                                  }`}
+                                >
+                                  Recebido ✓
                                 </button>
                               </div>
-                            )}
-                          </div>
+
+                              {/* Editor e Exibição de Rastreio */}
+                              <div className="pt-1 text-xs">
+                                {isEditingThis ? (
+                                  <div className="p-2.5 rounded-xl bg-[#FAF8F5] border border-[#EADBCE] space-y-2">
+                                    <div>
+                                      <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-0.5">
+                                        Código de Rastreio:
+                                      </label>
+                                      <input
+                                        type="text"
+                                        maxLength={80}
+                                        placeholder="Ex: QB123456789BR"
+                                        value={trackingInput}
+                                        onChange={(e) => setTrackingInput(e.target.value)}
+                                        className="w-full h-7 px-2 rounded-lg border border-[#EADBCE] bg-white text-xs font-mono focus:outline-none focus:border-[#C86D51]"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] font-semibold text-[#7D756C] block uppercase mb-0.5">
+                                        Observação interna:
+                                      </label>
+                                      <input
+                                        type="text"
+                                        maxLength={300}
+                                        placeholder="Ex: Chega até sexta..."
+                                        value={orderNoteInput}
+                                        onChange={(e) => setOrderNoteInput(e.target.value)}
+                                        className="w-full h-7 px-2 rounded-lg border border-[#EADBCE] bg-white text-xs focus:outline-none focus:border-[#C86D51]"
+                                      />
+                                    </div>
+                                    <div className="flex items-center justify-end gap-1.5 pt-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => setEditingTrackingId(null)}
+                                        className="h-6 px-2 rounded-lg border border-[#EADBCE] bg-white text-[11px] font-medium text-[#68625B] hover:text-[#2D2A26] cursor-pointer"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={savingTrackingId === res.id}
+                                        onClick={() => handleSaveTracking(res.id)}
+                                        className="h-6 px-2.5 rounded-lg bg-[#C86D51] hover:bg-[#A95339] text-white text-[11px] font-semibold transition-colors cursor-pointer"
+                                      >
+                                        {savingTrackingId === res.id ? 'Salvando...' : 'Salvar'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center justify-between text-[#68625B]">
+                                    <div className="space-y-0.5">
+                                      {res.trackingCode ? (
+                                        <div className="flex items-center gap-1.5 text-[11px]">
+                                          <Truck className="w-3 h-3 text-[#C86D51]" />
+                                          <span className="font-mono font-medium text-[#2D2A26]">{res.trackingCode}</span>
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] text-[#A59E95] block">Sem código de rastreio</span>
+                                      )}
+                                      {res.orderNote && (
+                                        <p className="text-[10px] text-[#7D756C] truncate max-w-[200px]" title={res.orderNote}>
+                                          Nota: {res.orderNote}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartEditingTracking(res)}
+                                      className="text-[11px] text-[#C86D51] hover:underline font-semibold cursor-pointer shrink-0"
+                                    >
+                                      {res.trackingCode || res.orderNote ? 'Editar' : '+ Rastreio/Obs'}
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
-                        {/* Bottom: Date & WhatsApp Action */}
-                        <div className="pt-3 mt-3 border-t border-[#EADBCE]/60 flex items-center justify-between text-[11px] text-[#A59E95]">
-                          <span>
-                            {res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}
-                          </span>
+                        {/* Actions footer */}
+                        <div className="pt-2 border-t border-[#F0E6DE] space-y-2 mt-2">
+                          <div className="flex items-center justify-between gap-2">
+                            {!isLink ? (
+                              <button
+                                type="button"
+                                onClick={() => handleToggleReservationPaid(res)}
+                                className={`h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                                  res.paid
+                                    ? 'bg-stone-100 hover:bg-stone-200 text-stone-700'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
+                                }`}
+                              >
+                                {res.paid ? 'Marcar como Pendente' : '✓ Confirmar Pagamento Pix'}
+                              </button>
+                            ) : (
+                              <div className="text-[11px] text-[#7D756C]">
+                                {currentFulfillment === 'received' ? (
+                                  <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                                    <Check className="w-3.5 h-3.5" /> Presente entregue
+                                  </span>
+                                ) : currentFulfillment === 'purchased' ? (
+                                  <span className="text-sky-700 font-semibold flex items-center gap-1">
+                                    <Truck className="w-3.5 h-3.5" /> A caminho da casa
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-700 font-medium">
+                                    Aguardando compra na loja
+                                  </span>
+                                )}
+                              </div>
+                            )}
 
-                          {whatsappUrl && (
-                            <a
-                              href={whatsappUrl}
-                              target="_blank"
-                              rel="noreferrer noopener"
-                              className="text-[#25D366] hover:underline font-semibold flex items-center gap-1"
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReservationClick(res)}
+                              title="Remover reserva"
+                              aria-label={`Remover reserva de ${res.guestName}`}
+                              className="h-8 w-8 rounded-lg text-stone-400 hover:text-red-600 hover:bg-red-50 flex items-center justify-center cursor-pointer transition-colors"
                             >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>Falar no WhatsApp →</span>
-                            </a>
-                          )}
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="flex items-center justify-between text-[11px] text-[#A59E95]">
+                            <span>
+                              {res.createdAt ? new Date(res.createdAt).toLocaleDateString('pt-BR') : 'Recentemente'}
+                            </span>
+                            {whatsappUrl && (
+                              <a
+                                href={whatsappUrl}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                                className="text-[#25D366] hover:underline font-medium flex items-center gap-1"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>Agradecer no WhatsApp →</span>
+                              </a>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

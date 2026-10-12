@@ -36,7 +36,7 @@ export const EventStory: React.FC = () => {
             </div>
             <h3 className="font-serif text-lg font-semibold text-[#2D2A26] mb-2">1. Meu Aniversário</h3>
             <p className="text-sm text-[#68625B] leading-relaxed">
-              Mais um ciclo comemorado com muita saúde, amigos queridos e brindes à nova idade.
+              Mais um ciclo de muita beleza, saúde, e tudo que há de bom (glória a Deus), infelizmente mais um ano que não foi decretado feriado então marca na sua agenda!
             </p>
           </div>
 
