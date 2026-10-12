@@ -27,6 +27,8 @@ export const DEFAULT_SETTINGS: EventSettings = {
   pixBankLink: "",
   pixCopiaECola: "",
   pixQrCodeUrl: "",
+  shippingPhone: "(11) 98765-4321",
+  hostWhatsapp: "(11) 98765-4321",
   galleryImages: [
     modernLivingRoom,
     kitchenDining,

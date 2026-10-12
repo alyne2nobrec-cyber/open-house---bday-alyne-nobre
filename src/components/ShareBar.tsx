@@ -1,17 +1,27 @@
 import React, { useState } from 'react';
 import { Share2, MessageCircle, Copy, Check } from 'lucide-react';
+import { EventSettings } from '../types';
+import { formatWhatsappUrl } from '../utils/phone';
 
-export const ShareBar: React.FC = () => {
+interface ShareBarProps {
+  settings?: EventSettings;
+}
+
+export const ShareBar: React.FC<ShareBarProps> = ({ settings }) => {
   const [copied, setCopied] = useState(false);
 
+  const hostName = settings?.hostName || 'Alyne Nobre';
+  const hostFirstName = hostName.split(' ')[0] || 'Alyne';
+  const hostPhone = settings?.hostWhatsapp || settings?.shippingPhone || '11987654321';
+
   const shareText = "Quero comemorar meu aniversário e essa fase nova com você! 🏡❤️";
-  const shareUrl = window.location.href;
+  const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
 
   const handleShare = async () => {
     if (navigator.share) {
       try {
         await navigator.share({
-          title: "Open House & Bday Alyne Nobre",
+          title: settings?.eventName || "Open House & Bday Alyne Nobre",
           text: shareText,
           url: shareUrl,
         });
@@ -19,13 +29,20 @@ export const ShareBar: React.FC = () => {
         // user cancelled or share failed
       }
     } else {
-      handleCopyLink();
+      const inviteText = encodeURIComponent(`${shareText}\n\nConfirme sua presença e veja a lista de presentes aqui: ${shareUrl}`);
+      window.open(`https://api.whatsapp.com/send?text=${inviteText}`, '_blank');
     }
   };
 
-  const handleWhatsAppShare = () => {
-    const text = encodeURIComponent(`${shareText}\n\nConfirme sua presença e veja a lista de presentes aqui: ${shareUrl}`);
-    window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
+  const notifyHostMessage = `Oi ${hostFirstName}! Estava vendo o convite do seu Open House e lembrei de uma pessoa querida que acho que você esqueceu de convidar: `;
+
+  const handleNotifyHostWhatsApp = () => {
+    const whatsappUrl = formatWhatsappUrl(hostPhone, notifyHostMessage);
+    if (whatsappUrl) {
+      window.open(whatsappUrl, '_blank');
+    } else {
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(notifyHostMessage)}`, '_blank');
+    }
   };
 
   const handleCopyLink = () => {
@@ -39,10 +56,10 @@ export const ShareBar: React.FC = () => {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
         
         <h3 className="font-serif text-2xl font-medium text-[#2D2A26] mb-2">
-          Tem alguém querido que também vai gostar de vir?
+          Lembra de alguém querido que a {hostFirstName} esqueceu?
         </h3>
         <p className="text-sm text-[#68625B] mb-6">
-          Pode encaminhar o convite para essa pessoa. Vou adorar comemorar com vocês!
+          Envie uma mensagem para a {hostFirstName} no WhatsApp avisando! Ela vai adorar saber para não deixar ninguém especial de fora. Ou, se preferir, encaminhe o convite direto para a pessoa.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -55,11 +72,11 @@ export const ShareBar: React.FC = () => {
           </button>
 
           <button
-            onClick={handleWhatsAppShare}
+            onClick={handleNotifyHostWhatsApp}
             className="h-11 px-5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-semibold tracking-wide uppercase flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
           >
             <MessageCircle className="w-4 h-4" />
-            <span>Enviar no WhatsApp</span>
+            <span>Avisar a {hostFirstName} no WhatsApp</span>
           </button>
 
           <button

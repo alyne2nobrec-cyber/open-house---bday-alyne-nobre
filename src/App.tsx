@@ -185,7 +185,7 @@ export default function App() {
         <LocationDetails settings={settings} />
 
         {/* 7. Share bar for WhatsApp and Web Share */}
-        <ShareBar />
+        <ShareBar settings={settings} />
       </main>
 
       {/* Footer */}

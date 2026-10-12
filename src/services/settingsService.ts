@@ -143,6 +143,7 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
         shippingCity: data.shippingCity ?? '',
         shippingZip: data.shippingZip ?? '',
         shippingPhone: data.shippingPhone ?? '',
+        hostWhatsapp: data.hostWhatsapp || data.shippingPhone || DEFAULT_SETTINGS.hostWhatsapp || '',
         shippingNotes: data.shippingNotes ?? '',
         heroHeading: data.heroHeading || DEFAULT_SETTINGS.heroHeading,
         heroSubheading: data.heroSubheading || DEFAULT_SETTINGS.heroSubheading,
