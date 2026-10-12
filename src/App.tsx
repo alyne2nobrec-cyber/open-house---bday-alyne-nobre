@@ -10,6 +10,7 @@ import { HouseGallery } from './components/HouseGallery';
 import { LocationDetails } from './components/LocationDetails';
 import { ShareBar } from './components/ShareBar';
 import { Footer } from './components/Footer';
+import { FloatingRsvpButton } from './components/FloatingRsvpButton';
 import { AdminLoginModal } from './components/Admin/AdminLoginModal';
 import { Gift, Guest, GiftReservation, EventSettings } from './types';
 import { DEFAULT_SETTINGS, INITIAL_GIFTS } from './data/defaultData';
@@ -239,6 +240,11 @@ export default function App() {
           )}
         </Suspense>
       )}
+
+      {/* Floating Mobile RSVP CTA */}
+      <FloatingRsvpButton
+        hidden={!!selectedGift || isAdminDashboardOpen || isAdminModalOpen}
+      />
     </div>
   );
 }

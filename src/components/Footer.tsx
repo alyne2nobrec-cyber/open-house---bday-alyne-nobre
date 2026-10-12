@@ -10,7 +10,7 @@ interface FooterProps {
 
 export const Footer: React.FC<FooterProps> = ({ settings, onOpenAdmin, isAdmin }) => {
   return (
-    <footer className="py-12 bg-[#FAF8F5] border-t border-[#EADBCE] text-[#7D756C] text-xs">
+    <footer className="pt-12 pb-24 sm:pb-12 bg-[#FAF8F5] border-t border-[#EADBCE] text-[#7D756C] text-xs">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
         
         {/* Left: Brand & Concept */}

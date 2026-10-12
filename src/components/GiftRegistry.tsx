@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown, Smile, X } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown, Smile, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Gift, GiftCategory } from '../types';
 import { getMemeKind, normalizeMemeUrl } from '../utils/memeMedia';
 
@@ -9,6 +9,9 @@ interface GiftRegistryProps {
 }
 
 type SortOption = 'default' | 'price-asc' | 'price-desc' | 'name';
+
+const INITIAL_VISIBLE = 6;
+const STEP = 6;
 
 const CATEGORIES: { id: GiftCategory; label: string; icon: string }[] = [
   { id: 'todos', label: 'Todos', icon: '✨' },
@@ -25,7 +28,12 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
   const [selectedCategory, setSelectedCategory] = useState<GiftCategory>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('default');
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [activeMemeGift, setActiveMemeGift] = useState<Gift | null>(null);
+
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [selectedCategory, searchQuery, sortBy]);
 
   // Filtered and sorted gifts list
   const filteredGifts = useMemo(() => {
@@ -62,6 +70,11 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
     });
   }, [gifts, selectedCategory, searchQuery, sortBy]);
 
+  const isSearching = searchQuery.trim() !== '';
+  const visibleGifts = isSearching
+    ? filteredGifts
+    : filteredGifts.slice(0, visibleCount);
+
   return (
     <section id="presentes" className="py-16 sm:py-24 bg-[#F4EFEB] border-t border-[#EADBCE]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
@@ -80,6 +93,19 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           <p className="text-base sm:text-lg text-[#68625B] leading-relaxed">
             Não existe inauguração de casa nova sem aquela ajudinha básica para transformar quatro paredes em um lar. Então preparei uma lista flexível de coisas que vão me ajudar nessa missão — de panelas a cotas de sobrevivência! Se quiser me presentear, fique à vontade para escolher algo da lista — e sem pressão, viu? O carinho de vocês já significa muito pra mim ❤️
           </p>
+
+          <div className="mt-4">
+            <a
+              href="#rsvp"
+              onClick={(e) => {
+                e.preventDefault();
+                document.getElementById('rsvp')?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="text-sm font-medium text-[#C86D51] hover:underline inline-flex items-center gap-1 cursor-pointer"
+            >
+              Já sabe que vem? Confirme sua presença ↓
+            </a>
+          </div>
         </div>
 
         {/* Filter Bar, Search & Sort */}
@@ -175,7 +201,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-7">
-            {filteredGifts.map((gift) => {
+            {visibleGifts.map((gift) => {
               const isUnavailable = gift.status === 'unavailable';
               const isSoldOut = !isUnavailable &&
                 (gift.status === 'sold_out' || gift.availableQuantity <= 0);
@@ -334,6 +360,39 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Load more / Collapse controls */}
+        {!isSearching && filteredGifts.length > INITIAL_VISIBLE && (
+          <div className="mt-10 flex flex-col items-center justify-center text-center">
+            <p className="text-xs text-[#7D756C] mb-3">
+              Mostrando {visibleGifts.length} de {filteredGifts.length} presentes
+            </p>
+            {visibleCount < filteredGifts.length ? (
+              <button
+                type="button"
+                onClick={() => setVisibleCount((c) => c + STEP)}
+                aria-expanded="false"
+                className="h-11 px-6 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-[#A95339] hover:bg-[#F0E6DE] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#C86D51]/30"
+              >
+                <span>Ver mais presentes</span>
+                <ChevronDown className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setVisibleCount(INITIAL_VISIBLE);
+                  document.getElementById('presentes')?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                aria-expanded="true"
+                className="h-11 px-6 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-[#A95339] hover:bg-[#F0E6DE] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#C86D51]/30"
+              >
+                <span>Ver menos</span>
+                <ChevronUp className="w-4 h-4" />
+              </button>
+            )}
           </div>
         )}
 
