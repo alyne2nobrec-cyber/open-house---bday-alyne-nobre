@@ -67,7 +67,7 @@ export const FloatingRsvpButton: React.FC<FloatingRsvpButtonProps> = ({ hidden =
       <button
         type="button"
         onClick={handleClick}
-        className="w-full h-12 rounded-xl bg-[#C86D51] hover:bg-[#A95339] active:scale-[0.98] text-white font-medium text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#C86D51]/25 border border-white/20 transition-all cursor-pointer focus:outline-hidden"
+        className="w-full h-12 rounded-full bg-[#CF3B25] hover:bg-[#A82D1B] active:scale-[0.98] text-white font-medium text-sm flex items-center justify-center gap-2 shadow-xl shadow-[#CF3B25]/25 border border-white/20 transition-all cursor-pointer focus:outline-hidden"
       >
         <span>Confirmar presença 🎉</span>
       </button>

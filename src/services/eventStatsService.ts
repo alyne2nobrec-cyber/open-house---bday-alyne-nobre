@@ -101,3 +101,29 @@ export async function incrementConfirmedAttendees(count: number): Promise<void> 
     }
   }
 }
+
+export async function syncConfirmedAttendees(count: number): Promise<void> {
+  const safeCount = Math.max(0, count);
+  saveLocalStats({
+    confirmedPeople: safeCount,
+  });
+
+  if (!isFirebaseConfigured || !db) {
+    return;
+  }
+
+  const ref = doc(db, STATS_DOC_PATH, STATS_DOC_ID);
+  try {
+    await setDoc(
+      ref,
+      {
+        confirmedPeople: safeCount,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.warn('Could not sync eventStats:', err);
+  }
+}
+

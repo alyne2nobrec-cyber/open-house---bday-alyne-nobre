@@ -11,6 +11,8 @@ import { LocationDetails } from './components/LocationDetails';
 import { ShareBar } from './components/ShareBar';
 import { Footer } from './components/Footer';
 import { FloatingRsvpButton } from './components/FloatingRsvpButton';
+import { PartyPanel } from './components/PartyPanel';
+import { WaveDivider } from './components/WaveDivider';
 import { AdminLoginModal } from './components/Admin/AdminLoginModal';
 import { Gift, Guest, GiftReservation, EventSettings } from './types';
 import { DEFAULT_SETTINGS, INITIAL_GIFTS } from './data/defaultData';
@@ -161,7 +163,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#2D2A26] flex flex-col font-sans">
+    <div className="min-h-screen bg-[#FBF4E8] text-[#1B2F4E] flex flex-col font-sans">
       {/* Top Bar Navigation */}
       <Navbar onOpenAdmin={handleOpenAdmin} isAdmin={isAdminLoggedIn} />
 
@@ -170,8 +172,13 @@ export default function App() {
         {/* 1. Hero Section with countdown, host photo and CTAs */}
         <Hero settings={settings} onScrollTo={handleScrollTo} />
 
+        <WaveDivider />
+
         {/* 2. Story Section with celebration concept */}
         <EventStory />
+
+        {/* Party Panel */}
+        <PartyPanel settings={settings} gifts={gifts} guests={guests} />
 
         {/* 3. Intelligent Gift Registry */}
         <GiftRegistry gifts={gifts} onSelectGift={(gift) => setSelectedGift(gift)} />
@@ -181,6 +188,8 @@ export default function App() {
 
         {/* 5. House Gallery (Virtual Tour of New Home) */}
         <HouseGallery settings={settings} />
+
+        <WaveDivider flip />
 
         {/* 6. Location Details & Map Coordinates */}
         <LocationDetails settings={settings} />
@@ -217,12 +226,12 @@ export default function App() {
 
       {/* Admin Full Dashboard */}
       {isAdminDashboardOpen && (
-        <Suspense fallback={<div className="fixed inset-0 z-50 bg-[#2D2A26]/40 backdrop-blur-xs flex items-center justify-center text-white text-sm">Carregando painel...</div>}>
+        <Suspense fallback={<div className="fixed inset-0 z-50 bg-[#1B2F4E]/40 backdrop-blur-xs flex items-center justify-center text-white text-sm">Carregando painel...</div>}>
           {authSessionLoading ? (
-            <div className="fixed inset-0 z-50 bg-[#2D2A26]/40 backdrop-blur-xs flex items-center justify-center">
+            <div className="fixed inset-0 z-50 bg-[#1B2F4E]/40 backdrop-blur-xs flex items-center justify-center">
               <div className="bg-white rounded-2xl p-6 shadow-xl flex items-center gap-3">
-                <div className="w-5 h-5 border-2 border-[#C86D51] border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm font-medium text-[#2D2A26]">Verificando sessão da anfitriã...</span>
+                <div className="w-5 h-5 border-2 border-[#CF3B25] border-t-transparent rounded-full animate-spin" />
+                <span className="text-sm font-medium text-[#1B2F4E]">Verificando sessão da anfitriã...</span>
               </div>
             </div>
           ) : (

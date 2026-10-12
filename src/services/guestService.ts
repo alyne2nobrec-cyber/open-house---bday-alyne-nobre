@@ -17,7 +17,7 @@ import {
 import { db, isFirebaseConfigured } from '../lib/firebase';
 import { auth } from '../lib/firebase';
 import { GiftReservation, Guest, GuestStatus } from '../types';
-import { incrementConfirmedAttendees } from './eventStatsService';
+import { incrementConfirmedAttendees, syncConfirmedAttendees } from './eventStatsService';
 import { normalizePhoneId } from '../utils/phone';
 
 const GUESTS_COLLECTION = 'guests';
@@ -237,6 +237,13 @@ export function subscribeGuests(
       const list: Guest[] = snapshot.docs.map(createGuestFromSnapshot);
 
       callback(list);
+
+      if (canManageGuests()) {
+        const realConfirmed = list
+          .filter((g) => g.status === 'confirmed')
+          .reduce((sum, g) => sum + (g.attendees || 1), 0);
+        void syncConfirmedAttendees(realConfirmed);
+      }
 
       const hasLegacyPhoneIds = snapshot.docs.some((guestDoc) => {
         const phoneKey = normalizePhoneId(guestDoc.data().whatsapp);

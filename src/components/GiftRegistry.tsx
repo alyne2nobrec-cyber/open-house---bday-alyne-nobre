@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown, Smile, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Gift, GiftCategory } from '../types';
 import { getMemeKind, normalizeMemeUrl } from '../utils/memeMedia';
 
@@ -76,21 +76,21 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
     : filteredGifts.slice(0, visibleCount);
 
   return (
-    <section id="presentes" className="py-16 sm:py-24 bg-[#F4EFEB] border-t border-[#EADBCE]">
+    <section id="presentes" className="py-16 sm:py-24 bg-[#F6EBD9] border-t border-[#E8D4B8]">
       <div className="max-w-6xl mx-auto px-4 sm:px-6">
         
         {/* Section Header */}
         <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="flex items-center justify-center gap-2 text-xs font-semibold tracking-widest uppercase text-[#A95339] mb-3">
-            <Sparkles className="w-3.5 h-3.5 text-[#C86D51]" />
+          <div className="flex items-center justify-center gap-2 text-xs font-mono font-semibold tracking-widest uppercase text-[#CF3B25] mb-3">
+            <Sparkles className="w-3.5 h-3.5 text-[#CF3B25]" />
             <span>Lista de Presentes Inteligente</span>
           </div>
 
-          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-[#2D2A26] mb-4 text-balance">
+          <h2 className="font-serif text-3xl sm:text-4xl lg:text-5xl font-medium text-[#1B2F4E] mb-4 text-balance">
             Minha casa precisa de vocês 😂
           </h2>
 
-          <p className="text-base sm:text-lg text-[#68625B] leading-relaxed">
+          <p className="text-base sm:text-lg text-[#4B5A72] leading-relaxed">
             Não existe inauguração de casa nova sem aquela ajudinha básica para transformar quatro paredes em um lar. Então preparei uma lista flexível de coisas que vão me ajudar nessa missão — de panelas a cotas de sobrevivência! Se quiser me presentear, fique à vontade para escolher algo da lista — e sem pressão, viu? O carinho de vocês já significa muito pra mim ❤️
           </p>
 
@@ -101,7 +101,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 e.preventDefault();
                 document.getElementById('rsvp')?.scrollIntoView({ behavior: 'smooth' });
               }}
-              className="text-sm font-medium text-[#C86D51] hover:underline inline-flex items-center gap-1 cursor-pointer"
+              className="text-sm font-medium text-[#CF3B25] hover:underline inline-flex items-center gap-1 cursor-pointer"
             >
               Já sabe que vem? Confirme sua presença ↓
             </a>
@@ -114,20 +114,20 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           {/* Interactive Search Bar + Sort Selector */}
           <div className="flex flex-col sm:flex-row items-center gap-3">
             <div className="relative flex-1 w-full">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#A59E95]" />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6F7F97]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Buscar presente (ex: geladeira, sofá, copos...)"
-                className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] focus:bg-white focus:border-[#C86D51] focus:ring-2 focus:ring-[#C86D51]/15 text-sm text-[#2D2A26] placeholder-[#8E867E] outline-none transition-all shadow-2xs"
+                className="w-full h-11 pl-11 pr-4 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] focus:bg-white focus:border-[#CF3B25] focus:ring-2 focus:ring-[#CF3B25]/15 text-sm text-[#1B2F4E] placeholder-[#5B6B82] outline-none transition-all shadow-2xs"
               />
             </div>
 
             {/* Sort Selector */}
             <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-between sm:justify-start">
-              <span className="text-xs font-medium text-[#7D756C] flex items-center gap-1 sm:hidden">
-                <ArrowUpDown className="w-3.5 h-3.5 text-[#C86D51]" />
+              <span className="text-xs font-mono font-medium text-[#5B6B82] flex items-center gap-1 sm:hidden">
+                <ArrowUpDown className="w-3.5 h-3.5 text-[#CF3B25]" />
                 Ordenar por:
               </span>
               <div className="relative flex-1 sm:flex-initial">
@@ -135,14 +135,14 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value as SortOption)}
                   aria-label="Ordenar presentes por"
-                  className="w-full sm:w-auto h-11 pl-9 pr-8 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs font-semibold text-[#2D2A26] focus:bg-white focus:border-[#C86D51] outline-none cursor-pointer shadow-2xs"
+                  className="w-full sm:w-auto h-11 pl-9 pr-8 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-xs font-semibold text-[#1B2F4E] focus:bg-white focus:border-[#CF3B25] outline-none cursor-pointer shadow-2xs"
                 >
                   <option value="default">Destaques da Alyne ✨</option>
                   <option value="price-asc">Menor Valor (R$)</option>
                   <option value="price-desc">Maior Valor (R$)</option>
                   <option value="name">Nome (A - Z)</option>
                 </select>
-                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#C86D51] pointer-events-none" />
+                <ArrowUpDown className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#CF3B25] pointer-events-none" />
               </div>
             </div>
           </div>
@@ -157,8 +157,8 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                   onClick={() => setSelectedCategory(cat.id)}
                   className={`h-9 px-3.5 rounded-lg text-xs font-medium whitespace-nowrap flex items-center gap-1.5 transition-all cursor-pointer ${
                     isActive
-                      ? 'bg-[#C86D51] text-white shadow-xs'
-                      : 'bg-[#FAF8F5] text-[#68625B] hover:text-[#2D2A26] border border-[#EADBCE]'
+                      ? 'bg-[#CF3B25] text-white shadow-xs'
+                      : 'bg-[#FBF4E8] text-[#4B5A72] hover:text-[#1B2F4E] border border-[#E8D4B8]'
                   }`}
                 >
                   <span>{cat.icon}</span>
@@ -169,7 +169,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
           </div>
 
           {/* Quick info: count and active sort indicator */}
-          <div className="flex items-center justify-between text-xs text-[#7D756C] px-1 pt-0.5">
+          <div className="flex items-center justify-between text-xs text-[#5B6B82] px-1 pt-0.5">
             <span>
               {filteredGifts.length === 1
                 ? '1 presente encontrado'
@@ -179,7 +179,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
               <button
                 type="button"
                 onClick={() => setSortBy('default')}
-                className="text-[#C86D51] hover:underline cursor-pointer font-medium"
+                className="text-[#CF3B25] hover:underline cursor-pointer font-medium"
               >
                 Voltar à ordem padrão
               </button>
@@ -190,12 +190,12 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
 
         {/* Gifts Grid */}
         {filteredGifts.length === 0 ? (
-          <div className="text-center py-16 bg-[#FAF8F5] rounded-3xl border border-[#EADBCE] p-8">
-            <GiftIcon className="w-10 h-10 text-[#C86D51] mx-auto mb-3 opacity-60" />
-            <p className="font-serif text-lg font-medium text-[#2D2A26]">
+          <div className="text-center py-16 bg-[#FBF4E8] rounded-3xl border border-[#E8D4B8] p-8">
+            <GiftIcon className="w-10 h-10 text-[#CF3B25] mx-auto mb-3 opacity-60" />
+            <p className="font-serif text-lg font-medium text-[#1B2F4E]">
               Nenhum presente encontrado nessa categoria
             </p>
-            <p className="text-xs text-[#68625B] mt-1">
+            <p className="text-xs text-[#4B5A72] mt-1">
               Tente buscar por outro termo ou selecione a categoria "Todos".
             </p>
           </div>
@@ -211,14 +211,14 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
               return (
                 <div
                   key={gift.id}
-                  className={`flex flex-col bg-[#FAF8F5] rounded-3xl border overflow-hidden transition-all duration-200 ${
+                  className={`flex flex-col bg-[#FBF4E8] rounded-3xl border overflow-hidden transition-all duration-200 ${
                     isSoldOut || isUnavailable
-                      ? 'border-[#EADBCE] opacity-80'
-                      : 'border-[#EADBCE] hover:border-[#D5C6BA] hover:shadow-md'
+                      ? 'border-[#E8D4B8] opacity-80'
+                      : 'border-[#E8D4B8] hover:border-[#DCC6A6] hover:shadow-md'
                   }`}
                 >
                   {/* Photo Container */}
-                  <div className="relative aspect-[16/10] bg-[#EFE8DF] overflow-hidden">
+                  <div className="relative aspect-[16/10] bg-[#F3E3CB] overflow-hidden">
                     {gift.imageUrl ? (
                       <img
                         src={gift.imageUrl}
@@ -229,28 +229,28 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                         }`}
                       />
                     ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center bg-[#FAF8F5] text-[#C86D51] p-4 text-center">
+                      <div className="w-full h-full flex flex-col items-center justify-center bg-[#FBF4E8] text-[#CF3B25] p-4 text-center">
                         <GiftIcon className="w-10 h-10 mb-2 opacity-50" />
-                        <span className="text-xs text-[#7D756C]">Foto em breve</span>
+                        <span className="text-xs text-[#5B6B82]">Foto em breve</span>
                       </div>
                     )}
 
                     {/* Sold out overlay tag or Category text */}
                     {isSoldOut ? (
-                      <div className="absolute inset-0 bg-stone-900/50 backdrop-blur-2xs flex items-center justify-center p-4">
-                        <div className="bg-[#FAF8F5] text-[#2D2A26] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md flex items-center gap-1.5">
+                      <div className="absolute inset-0 bg-[#1B2F4E]/60 backdrop-blur-2xs flex items-center justify-center p-4">
+                        <div className="bg-[#FBF4E8] text-[#1B2F4E] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md flex items-center gap-1.5">
                           <CheckCircle2 className="w-4 h-4 text-[#8A9A86]" />
                           <span>{gift.availableQuantity <= 0 ? 'PRESENTE GARANTIDO! 🎉' : 'ESGOTADO'}</span>
                         </div>
                       </div>
                     ) : isUnavailable ? (
-                      <div className="absolute inset-0 bg-stone-900/40 backdrop-blur-2xs flex items-center justify-center p-4">
-                        <div className="bg-[#FAF8F5] text-[#2D2A26] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md">
+                      <div className="absolute inset-0 bg-[#1B2F4E]/50 backdrop-blur-2xs flex items-center justify-center p-4">
+                        <div className="bg-[#FBF4E8] text-[#1B2F4E] px-4 py-2 rounded-xl text-xs font-semibold tracking-wide shadow-md">
                           INDISPONÍVEL NO MOMENTO
                         </div>
                       </div>
                     ) : (
-                      <div className="absolute bottom-2.5 left-2.5 bg-black/50 backdrop-blur-xs text-white text-[11px] font-medium px-2.5 py-1 rounded-md">
+                      <div className="absolute bottom-2.5 left-2.5 bg-[#1B2F4E]/70 backdrop-blur-xs text-white text-[11px] font-medium px-2.5 py-1 rounded-md">
                         {gift.category.charAt(0).toUpperCase() + gift.category.slice(1)}
                       </div>
                     )}
@@ -260,12 +260,12 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                   <div className="p-5 flex-1 flex flex-col justify-between">
                     <div>
                       {/* Name */}
-                      <h3 className="font-serif text-lg font-medium text-[#2D2A26] leading-snug mb-2">
+                      <h3 className="font-serif text-lg font-medium text-[#1B2F4E] leading-snug mb-2">
                         {gift.name}
                       </h3>
 
                       {/* Description */}
-                      <p className="text-xs sm:text-sm text-[#68625B] leading-relaxed line-clamp-3 mb-3">
+                      <p className="text-xs sm:text-sm text-[#4B5A72] leading-relaxed line-clamp-3 mb-3">
                         {gift.description}
                       </p>
 
@@ -275,7 +275,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                           <button
                             type="button"
                             onClick={() => setActiveMemeGift(gift)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FBF0EB] hover:bg-[#F3E2DA] border border-[#F0D5C9] text-xs font-semibold text-[#A95339] transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FDE9E3] hover:bg-[#F7E6D0] border border-[#E8D4B8] text-xs font-semibold text-[#A82D1B] transition-colors cursor-pointer"
                           >
                             <span>😂</span>
                             <span>Ver meme</span>
@@ -286,25 +286,25 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
 
                     <div>
                       {/* Price & Quotas Info */}
-                      <div className="pt-3 border-t border-[#EADBCE] mb-4 flex items-baseline justify-between">
+                      <div className="pt-3 border-t border-[#E8D4B8] mb-4 flex items-baseline justify-between">
                         <div>
-                          <span className="text-xs text-[#7D756C] block">Valor sugerido</span>
-                          <span className="font-serif text-xl font-semibold text-[#2D2A26] tabular-nums">
+                          <span className="text-xs text-[#5B6B82] block">Valor sugerido</span>
+                          <span className="font-serif text-xl font-semibold text-[#1B2F4E] tabular-nums">
                             R$ {gift.price.toLocaleString('pt-BR')}
                             {gift.totalQuantity > 1 && (
-                              <span className="text-xs font-sans text-[#7D756C] font-normal"> / cota</span>
+                              <span className="text-xs font-sans text-[#5B6B82] font-normal"> / cota</span>
                             )}
                           </span>
                         </div>
 
                         {/* Quotas status */}
                         <div className="text-right">
-                          <span className="text-[11px] font-medium text-[#7D756C] block uppercase tracking-wider">
+                          <span className="text-[11px] font-mono font-medium text-[#5B6B82] block uppercase tracking-wider">
                             Disponibilidade
                           </span>
                           <span
                             className={`text-xs font-semibold tabular-nums ${
-                              isSoldOut || isUnavailable ? 'text-stone-400' : 'text-[#A95339]'
+                              isSoldOut || isUnavailable ? 'text-[#6F7F97]' : 'text-[#A82D1B]'
                             }`}
                           >
                             {isUnavailable
@@ -318,14 +318,14 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
 
                       {/* Action Buttons */}
                       {isSoldOut || isUnavailable ? (
-                        <div className="w-full h-11 rounded-xl bg-[#EFE8DF] text-[#7D756C] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed">
+                        <div className="w-full h-11 rounded-xl bg-[#F3E3CB] text-[#5B6B82] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed">
                           <span>{isUnavailable ? 'Temporariamente indisponível' : 'Presente já garantido ❤️'}</span>
                         </div>
                       ) : (
                         <div className="space-y-2">
                           <button
                             onClick={() => onSelectGift(gift)}
-                            className="w-full h-11 rounded-xl bg-[#C86D51] hover:bg-[#A95339] text-white text-xs font-semibold tracking-wide uppercase flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all cursor-pointer"
+                            className="w-full h-11 rounded-xl bg-[#CF3B25] hover:bg-[#A82D1B] text-white text-xs font-semibold tracking-wide uppercase flex items-center justify-center gap-2 shadow-xs active:scale-[0.98] transition-all cursor-pointer"
                           >
                             <Heart className="w-4 h-4 fill-white" />
                             <span>Quero presentear com isso</span>
@@ -336,9 +336,9 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                               href={gift.purchaseUrl}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="w-full h-9 rounded-xl bg-white hover:bg-[#FAF8F5] border border-[#EADBCE] text-[#68625B] hover:text-[#2D2A26] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                              className="w-full h-9 rounded-xl bg-white hover:bg-[#FBF4E8] border border-[#E8D4B8] text-[#4B5A72] hover:text-[#1B2F4E] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
                             >
-                              <ExternalLink className="w-3.5 h-3.5 text-[#C86D51]" />
+                              <ExternalLink className="w-3.5 h-3.5 text-[#CF3B25]" />
                               <span>Ver produto na loja</span>
                             </a>
                           )}
@@ -346,7 +346,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                           {isPixType && (
                             <button
                               onClick={() => onSelectGift(gift)}
-                              className="w-full h-9 rounded-xl bg-[#FAF8F5] hover:bg-[#F0E6DE] text-[#A95339] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                              className="w-full h-9 rounded-xl bg-[#FBF4E8] hover:bg-[#F7E6D0] text-[#A82D1B] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                             >
                               <QrCode className="w-3.5 h-3.5" />
                               <span>Presentear via Pix / QR Code</span>
@@ -366,7 +366,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
         {/* Load more / Collapse controls */}
         {!isSearching && filteredGifts.length > INITIAL_VISIBLE && (
           <div className="mt-10 flex flex-col items-center justify-center text-center">
-            <p className="text-xs text-[#7D756C] mb-3">
+            <p className="text-xs text-[#5B6B82] mb-3">
               Mostrando {visibleGifts.length} de {filteredGifts.length} presentes
             </p>
             {visibleCount < filteredGifts.length ? (
@@ -374,7 +374,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 type="button"
                 onClick={() => setVisibleCount((c) => c + STEP)}
                 aria-expanded="false"
-                className="h-11 px-6 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-[#A95339] hover:bg-[#F0E6DE] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#C86D51]/30"
+                className="h-11 px-6 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-[#A82D1B] hover:bg-[#F7E6D0] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#CF3B25]/30"
               >
                 <span>Ver mais presentes</span>
                 <ChevronDown className="w-4 h-4" />
@@ -387,7 +387,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                   document.getElementById('presentes')?.scrollIntoView({ behavior: 'smooth' });
                 }}
                 aria-expanded="true"
-                className="h-11 px-6 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-[#A95339] hover:bg-[#F0E6DE] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#C86D51]/30"
+                className="h-11 px-6 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-[#A82D1B] hover:bg-[#F7E6D0] text-sm font-medium inline-flex items-center gap-2 transition-colors cursor-pointer shadow-2xs focus:outline-hidden focus:ring-2 focus:ring-[#CF3B25]/30"
               >
                 <span>Ver menos</span>
                 <ChevronUp className="w-4 h-4" />
@@ -403,26 +403,26 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
             onClick={() => setActiveMemeGift(null)}
           >
             <div
-              className="relative max-w-sm sm:max-w-md w-full bg-[#FAF8F5] border border-[#EADBCE] rounded-3xl p-5 shadow-2xl overflow-hidden"
+              className="relative max-w-sm sm:max-w-md w-full bg-[#FBF4E8] border border-[#E8D4B8] rounded-3xl p-5 shadow-2xl overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2">
                   <span className="text-base">😂</span>
-                  <h4 className="font-serif text-base font-semibold text-[#2D2A26] truncate">
+                  <h4 className="font-serif text-base font-semibold text-[#1B2F4E] truncate">
                     {activeMemeGift.name}
                   </h4>
                 </div>
                 <button
                   type="button"
                   onClick={() => setActiveMemeGift(null)}
-                  className="w-8 h-8 rounded-full bg-[#F4EFEB] hover:bg-[#EADBCE] text-[#68625B] hover:text-[#2D2A26] flex items-center justify-center transition-colors cursor-pointer"
+                  className="w-8 h-8 rounded-full bg-[#F6EBD9] hover:bg-[#E8D4B8] text-[#4B5A72] hover:text-[#1B2F4E] flex items-center justify-center transition-colors cursor-pointer"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="rounded-2xl overflow-hidden bg-black/5 border border-[#EADBCE] flex items-center justify-center min-h-[180px] max-h-[360px]">
+              <div className="rounded-2xl overflow-hidden bg-black/5 border border-[#E8D4B8] flex items-center justify-center min-h-[180px] max-h-[360px]">
                 {getMemeKind(activeMemeGift.memeUrl) === 'video' ? (
                   <video
                     src={normalizeMemeUrl(activeMemeGift.memeUrl)}
@@ -450,7 +450,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 <button
                   type="button"
                   onClick={() => setActiveMemeGift(null)}
-                  className="w-full h-9 rounded-xl bg-[#F4EFEB] hover:bg-[#EADBCE] text-xs font-semibold text-[#2D2A26] transition-colors cursor-pointer"
+                  className="w-full h-9 rounded-xl bg-[#F6EBD9] hover:bg-[#E8D4B8] text-xs font-semibold text-[#1B2F4E] transition-colors cursor-pointer"
                 >
                   Fechar
                 </button>
