@@ -234,6 +234,7 @@ export function subscribeGifts(
           pixCopiaECola: data.pixCopiaECola || '',
           pixBankLink: data.pixBankLink || '',
           status: data.status || 'available',
+          memeUrl: data.memeUrl || '',
           createdAt: data.createdAt,
           updatedAt: data.updatedAt,
         };
@@ -760,6 +761,7 @@ export async function importGiftsFromList(
         reservedQuantity: 0,
         purchaseUrl: item.purchaseUrl || '',
         pixKey: item.pixKey || '',
+        memeUrl: item.memeUrl || '',
         status: item.totalQuantity > 0 ? 'available' : 'sold_out',
       });
       existingNamesSet.add(norm);

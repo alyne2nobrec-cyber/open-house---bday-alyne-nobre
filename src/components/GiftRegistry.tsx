@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown } from 'lucide-react';
+import { Search, Gift as GiftIcon, Heart, ExternalLink, QrCode, CheckCircle2, Sparkles, ArrowUpDown, Smile, X } from 'lucide-react';
 import { Gift, GiftCategory } from '../types';
+import { getMemeKind, normalizeMemeUrl } from '../utils/memeMedia';
 
 interface GiftRegistryProps {
   gifts: Gift[];
@@ -24,6 +25,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
   const [selectedCategory, setSelectedCategory] = useState<GiftCategory>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('default');
+  const [activeMemeGift, setActiveMemeGift] = useState<Gift | null>(null);
 
   // Filtered and sorted gifts list
   const filteredGifts = useMemo(() => {
@@ -237,9 +239,23 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       </h3>
 
                       {/* Description */}
-                      <p className="text-xs sm:text-sm text-[#68625B] leading-relaxed line-clamp-3 mb-4">
+                      <p className="text-xs sm:text-sm text-[#68625B] leading-relaxed line-clamp-3 mb-3">
                         {gift.description}
                       </p>
+
+                      {/* Meme badge if present */}
+                      {gift.memeUrl && getMemeKind(gift.memeUrl) !== 'invalid' && (
+                        <div className="mb-3">
+                          <button
+                            type="button"
+                            onClick={() => setActiveMemeGift(gift)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FBF0EB] hover:bg-[#F3E2DA] border border-[#F0D5C9] text-xs font-semibold text-[#A95339] transition-colors cursor-pointer"
+                          >
+                            <span>😂</span>
+                            <span>Ver meme</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -318,6 +334,69 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Modal / Overlay for viewing Gift Meme */}
+        {activeMemeGift && activeMemeGift.memeUrl && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+            onClick={() => setActiveMemeGift(null)}
+          >
+            <div
+              className="relative max-w-sm sm:max-w-md w-full bg-[#FAF8F5] border border-[#EADBCE] rounded-3xl p-5 shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-base">😂</span>
+                  <h4 className="font-serif text-base font-semibold text-[#2D2A26] truncate">
+                    {activeMemeGift.name}
+                  </h4>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveMemeGift(null)}
+                  className="w-8 h-8 rounded-full bg-[#F4EFEB] hover:bg-[#EADBCE] text-[#68625B] hover:text-[#2D2A26] flex items-center justify-center transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="rounded-2xl overflow-hidden bg-black/5 border border-[#EADBCE] flex items-center justify-center min-h-[180px] max-h-[360px]">
+                {getMemeKind(activeMemeGift.memeUrl) === 'video' ? (
+                  <video
+                    src={normalizeMemeUrl(activeMemeGift.memeUrl)}
+                    autoPlay
+                    loop
+                    muted
+                    playsInline
+                    controls={false}
+                    className="w-full h-auto max-h-[360px] object-contain"
+                    onError={() => setActiveMemeGift(null)}
+                  />
+                ) : (
+                  <img
+                    src={normalizeMemeUrl(activeMemeGift.memeUrl)}
+                    alt={`Meme do presente ${activeMemeGift.name}`}
+                    referrerPolicy="no-referrer"
+                    loading="lazy"
+                    className="w-full h-auto max-h-[360px] object-contain"
+                    onError={() => setActiveMemeGift(null)}
+                  />
+                )}
+              </div>
+
+              <div className="mt-3 text-center">
+                <button
+                  type="button"
+                  onClick={() => setActiveMemeGift(null)}
+                  className="w-full h-9 rounded-xl bg-[#F4EFEB] hover:bg-[#EADBCE] text-xs font-semibold text-[#2D2A26] transition-colors cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </div>
           </div>
         )}
 

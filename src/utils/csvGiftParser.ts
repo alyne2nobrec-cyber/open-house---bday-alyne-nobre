@@ -1,4 +1,5 @@
 import { GiftCategory, GiftType } from '../types';
+import { normalizeMemeUrl } from './memeMedia';
 
 export interface ParsedCsvGift {
   name: string;
@@ -10,6 +11,7 @@ export interface ParsedCsvGift {
   purchaseUrl?: string;
   pixKey?: string;
   imageUrl: string;
+  memeUrl?: string;
   line: number;
 }
 
@@ -193,6 +195,7 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
   let urlIdx = -1;
   let pixIdx = -1;
   let imgIdx = -1;
+  let memeIdx = -1;
 
   let startIndex = 0;
 
@@ -232,6 +235,9 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
     'foto',
     'foto_url',
     'image',
+    'meme',
+    'gif',
+    'link_do_meme',
   ]);
 
   const headerMatches = headerRow.filter((c) => recognizedHeaderKeywords.has(c));
@@ -291,6 +297,8 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
         col.includes('img')
       ) {
         imgIdx = idx;
+      } else if (col === 'meme' || col === 'gif' || col.includes('meme') || col === 'link_do_meme') {
+        memeIdx = idx;
       } else if (
         col === 'link' ||
         col === 'link_compra' ||
@@ -308,7 +316,7 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
     });
   } else {
     // Default column order assumption:
-    // 0: nome, 1: descricao, 2: categoria, 3: tipo, 4: preco, 5: quantidade, 6: link_compra, 7: chave_pix, 8: imagem_url
+    // 0: nome, 1: descricao, 2: categoria, 3: tipo, 4: preco, 5: quantidade, 6: link_compra, 7: chave_pix, 8: imagem_url, 9: meme
     nameIdx = 0;
     descIdx = 1;
     catIdx = 2;
@@ -318,6 +326,7 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
     urlIdx = 6;
     pixIdx = 7;
     imgIdx = 8;
+    memeIdx = 9;
   }
 
   const parsedGifts: ParsedCsvGift[] = [];
@@ -356,6 +365,7 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
     const type = parseType(typeIdx >= 0 ? row[typeIdx] : undefined, purchaseUrl, pixKey);
     const price = parsePrice(priceIdx >= 0 ? row[priceIdx] : undefined);
     const totalQuantity = parseQuantity(qtyIdx >= 0 ? row[qtyIdx] : undefined);
+    const memeUrl = normalizeMemeUrl(memeIdx >= 0 ? row[memeIdx] : undefined);
 
     // Specific non-blocking warnings
     if ((type === 'pix' || type === 'shares') && !pixKey) {
@@ -376,6 +386,7 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
       purchaseUrl,
       pixKey,
       imageUrl,
+      memeUrl,
       line: lineNumber,
     });
   }
@@ -392,11 +403,11 @@ export function parseGiftsCsv(csvContent: string): GiftCsvParseResult {
  */
 export function downloadSampleGiftsCsv(): void {
   const content = [
-    'Nome;Descricao;Categoria;Tipo;Preco;Quantidade;Link_Compra;Chave_Pix;Imagem_URL',
-    'Jogo de Panelas Antiaderente;Conjunto 5 peças para a cozinha nova;cozinha;produto;389,90;1;;;',
-    'Geladeira Frost Free (Cota);Ajude a mobiliar a cozinha nova!;cozinha;cotas;150,00;10;;11998765432;',
-    'Pix para o Apê Novo;Contribuição em dinheiro com muito carinho;pix;pix;100,00;99;;alyne.custodio@dux-company.com;',
-    'Cafeteira Nespresso Essenza Mini;Cafeteira expresso para o cantinho do café;cozinha;externo;450,00;1;https://www.amazon.com.br/dp/B0777B681K;;',
+    'Nome;Descricao;Categoria;Tipo;Preco;Quantidade;Link_Compra;Chave_Pix;Imagem_URL;Meme',
+    'Jogo de Panelas Antiaderente;Conjunto 5 peças para a cozinha nova;cozinha;produto;389,90;1;;;;',
+    'Geladeira Frost Free (Cota);Ajude a mobiliar a cozinha nova!;cozinha;cotas;150,00;10;;11998765432;;https://media.giphy.com/media/l41lFw057lAJQMwg0/giphy.gif',
+    'Pix para o Apê Novo;Contribuição em dinheiro com muito carinho;pix;pix;100,00;99;;alyne.custodio@dux-company.com;;',
+    'Cafeteira Nespresso Essenza Mini;Cafeteira expresso para o cantinho do café;cozinha;externo;450,00;1;https://www.amazon.com.br/dp/B0777B681K;;;',
   ].join('\r\n');
 
   const blob = new Blob(['\uFEFF' + content], { type: 'text/csv;charset=utf-8;' });

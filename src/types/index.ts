@@ -21,6 +21,7 @@ export interface Gift {
   pixCopiaECola?: string;
   pixBankLink?: string;
   status: GiftStatus;
+  memeUrl?: string;
   createdAt?: any;
   updatedAt?: any;
 }

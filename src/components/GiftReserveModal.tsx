@@ -6,6 +6,7 @@ import { Gift, EventSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../data/defaultData';
 import { reserveGiftWithTransaction } from '../services/giftService';
 import { buildPixPayload } from '../utils/pix';
+import { getMemeKind, normalizeMemeUrl } from '../utils/memeMedia';
 
 interface GiftReserveModalProps {
   gift: Gift | null;
@@ -459,6 +460,38 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                     {gift.availableQuantity} de {gift.totalQuantity} disponíveis
                   </span>
                 </div>
+
+                {gift.memeUrl && getMemeKind(gift.memeUrl) !== 'invalid' && (
+                  <div className="mt-3">
+                    <div className="inline-block rounded-xl overflow-hidden border border-[#EADBCE] bg-black/5 max-h-36 max-w-[200px]">
+                      {getMemeKind(gift.memeUrl) === 'video' ? (
+                        <video
+                          src={normalizeMemeUrl(gift.memeUrl)}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          controls={false}
+                          className="w-full h-auto max-h-36 object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <img
+                          src={normalizeMemeUrl(gift.memeUrl)}
+                          alt="Meme do presente"
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          className="w-full h-auto max-h-36 object-contain"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 

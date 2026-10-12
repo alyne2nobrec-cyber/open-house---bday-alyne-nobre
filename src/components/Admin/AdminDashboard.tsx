@@ -57,6 +57,7 @@ import { parseGiftsCsv, downloadSampleGiftsCsv, ParsedCsvGift } from '../../util
 import { downloadCsvFile } from '../../utils/csvExport';
 import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
+import { normalizeMemeUrl, getMemeKind } from '../../utils/memeMedia';
 import { WhatsAppTab } from './WhatsAppTab';
 
 interface AdminDashboardProps {
@@ -311,6 +312,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       'Reservadas',
       'Disponiveis',
       'Status',
+      'Meme',
     ];
 
     const rows = gifts.map((g) => {
@@ -334,6 +336,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         g.reservedQuantity ?? 0,
         g.availableQuantity ?? 0,
         statusLabel,
+        g.memeUrl || '',
       ];
     });
 
@@ -3494,6 +3497,7 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
   const [imageUrl, setImageUrl] = useState(gift?.imageUrl || '');
   const [purchaseUrl, setPurchaseUrl] = useState(gift?.purchaseUrl || '');
   const [pixKey, setPixKey] = useState(gift?.pixKey || '');
+  const [memeUrl, setMemeUrl] = useState(gift?.memeUrl || '');
   const [status, setStatus] = useState<GiftStatus>(gift?.status || 'available');
   const [saving, setSaving] = useState(false);
 
@@ -3507,57 +3511,83 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
       try {
         const url = await uploadImageFile(file, 'gifts');
         setImageUrl(url);
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Error uploading image:', err);
+        alert(err?.message || 'Não foi possível enviar a imagem.');
       } finally {
         setImageUploading(false);
+        e.target.value = '';
       }
     }
   };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Normalização do Link de Compra
+    let normalizedPurchaseUrl = purchaseUrl.trim();
+    if (normalizedPurchaseUrl && !/^https?:\/\//i.test(normalizedPurchaseUrl)) {
+      normalizedPurchaseUrl = 'https://' + normalizedPurchaseUrl;
+    }
+
+    // Normalização e validação do Meme (se preenchido)
+    const normalizedMeme = normalizeMemeUrl(memeUrl);
+    if (memeUrl.trim()) {
+      const memeKind = getMemeKind(normalizedMeme);
+      if (memeKind === 'invalid') {
+        alert('O link do meme não é válido como mídia direta (.gif, .mp4, .webp ou Giphy direto). Links de página do Tenor ou Instagram não funcionam.');
+        return;
+      }
+    }
+
     setSaving(true);
 
     try {
       if (gift && gift.id) {
         // Update
         await updateGift(gift.id, {
-          name,
-          description,
+          name: name.trim(),
+          description: description.trim(),
           category,
           type,
           price: Number(price),
           totalQuantity: Number(totalQuantity),
           availableQuantity: Math.max(0, Number(totalQuantity) - (gift.reservedQuantity || 0)),
-          imageUrl,
-          purchaseUrl,
-          pixKey,
+          imageUrl: imageUrl.trim(),
+          purchaseUrl: normalizedPurchaseUrl,
+          pixKey: pixKey.trim(),
+          memeUrl: normalizedMeme,
           status,
         });
       } else {
         // Create
         await createGift({
-          name,
-          description,
+          name: name.trim(),
+          description: description.trim(),
           category,
           type,
           price: Number(price),
           totalQuantity: Number(totalQuantity),
           availableQuantity: Number(totalQuantity),
           reservedQuantity: 0,
-          imageUrl,
-          purchaseUrl,
-          pixKey,
+          imageUrl: imageUrl.trim(),
+          purchaseUrl: normalizedPurchaseUrl,
+          pixKey: pixKey.trim(),
+          memeUrl: normalizedMeme,
           status,
         });
       }
 
       onSaved();
+    } catch (err) {
+      console.error(err);
+      alert('Não foi possível salvar o presente: ' + (err instanceof Error ? err.message : 'erro desconhecido') + '. Se aparecer "permission-denied", entre com o e-mail de administradora.');
     } finally {
       setSaving(false);
     }
   };
+
+  const memeKind = memeUrl.trim() ? getMemeKind(memeUrl) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
@@ -3592,11 +3622,17 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
-              Descrição com Humor / Motivo
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B]">
+                Descrição com Humor / Motivo
+              </label>
+              <span className="text-[10px] text-[#A59E95] tabular-nums">
+                {description.length}/300
+              </span>
+            </div>
             <textarea
               rows={2}
+              maxLength={300}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Ex: Para garantir que as visitas não passem calor!"
@@ -3701,12 +3737,17 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
                 placeholder="URL da imagem (ou envie do celular abaixo)"
                 className="flex-1 h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
               />
-              <label className="h-10 px-3 rounded-xl border border-[#EADBCE] bg-[#F4EFEB] hover:bg-[#EADBCE] text-xs font-medium text-[#2D2A26] flex items-center gap-1.5 cursor-pointer">
+              <label
+                className={`h-10 px-3 rounded-xl border border-[#EADBCE] bg-[#F4EFEB] hover:bg-[#EADBCE] text-xs font-medium text-[#2D2A26] flex items-center gap-1.5 cursor-pointer ${
+                  imageUploading ? 'opacity-50 pointer-events-none' : ''
+                }`}
+              >
                 <Upload className="w-3.5 h-3.5" />
-                <span>Upload</span>
+                <span>{imageUploading ? 'Enviando...' : 'Upload'}</span>
                 <input
                   type="file"
                   accept="image/*"
+                  disabled={imageUploading}
                   onChange={handleImageFileChange}
                   className="hidden"
                 />
@@ -3719,6 +3760,53 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
             )}
           </div>
 
+          {/* Meme do Presente (opcional) */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-[#68625B] mb-1">
+              Meme do Presente (opcional)
+            </label>
+            <input
+              type="text"
+              value={memeUrl}
+              onChange={(e) => setMemeUrl(e.target.value)}
+              placeholder="Link direto do GIF/MP4 (ex.: https://media.giphy.com/media/.../giphy.gif)"
+              className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+            />
+            <p className="text-[11px] text-[#7D756C] mt-1">
+              Cole o link direto da mídia (.gif, .mp4, .webp). Links de página do Tenor/Instagram não funcionam.
+            </p>
+
+            {memeUrl.trim() && (
+              <div className="mt-2.5 flex items-center gap-3">
+                {memeKind === 'video' ? (
+                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-[#EADBCE] bg-black">
+                    <video
+                      src={normalizeMemeUrl(memeUrl)}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : memeKind === 'image' ? (
+                  <div className="w-16 h-16 rounded-xl overflow-hidden border border-[#EADBCE] bg-[#EFE8DF]">
+                    <img
+                      src={normalizeMemeUrl(memeUrl)}
+                      alt="Prévia do meme"
+                      referrerPolicy="no-referrer"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-rose-600 font-medium">
+                    Link não reconhecido como mídia direta.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Optional links */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
@@ -3726,10 +3814,10 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
                 Link de Compra (se houver)
               </label>
               <input
-                type="url"
+                type="text"
                 value={purchaseUrl}
                 onChange={(e) => setPurchaseUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder="https://... (ou link de loja)"
                 className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
               />
             </div>
@@ -3751,10 +3839,10 @@ const GiftFormModal: React.FC<GiftFormModalProps> = ({ gift, onClose, onSaved })
           <div className="pt-3">
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || imageUploading}
               className="w-full h-11 rounded-xl bg-[#C86D51] hover:bg-[#A95339] disabled:opacity-50 text-white text-xs font-semibold tracking-wide uppercase transition-colors cursor-pointer"
             >
-              {saving ? 'Salvando...' : 'Salvar Presente'}
+              {imageUploading ? 'Enviando imagem...' : saving ? 'Salvando...' : 'Salvar Presente'}
             </button>
           </div>
         </form>
