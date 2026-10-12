@@ -3,6 +3,12 @@
 @theme {
   --font-serif: 'Fraunces', Georgia, serif;
   --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'DM Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-hand: 'Caveat', 'Segoe Script', cursive;
+  --color-sun: #F2B84B;
+  --color-coral: #CF3B25;
+  --color-ink: #1B2F4E;
+  --color-cream: #FBF4E8;
 }
 
 html {
@@ -11,16 +17,25 @@ html {
 
 body {
   font-family: var(--font-sans);
-  background-color: #FAF8F5;
-  color: #2D2A26;
+  background-color: #FBF4E8;
+  color: #1B2F4E;
 }
 
 .font-serif {
   font-family: var(--font-serif);
+  font-variation-settings: "SOFT" 100, "WONK" 1;
 }
 
 .font-sans {
   font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.font-hand {
+  font-family: var(--font-hand);
 }
 
 .scrollbar-none {
@@ -38,13 +53,28 @@ body {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #FAF8F5;
+  background: #FBF4E8;
 }
 ::-webkit-scrollbar-thumb {
-  background: #E4DCD3;
+  background: #E8D4B8;
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #C86D51;
+  background: #CF3B25;
 }
+
+::selection {
+  background-color: rgba(242, 184, 75, 0.4);
+  color: #1B2F4E;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 

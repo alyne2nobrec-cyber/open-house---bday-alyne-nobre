@@ -52,20 +52,20 @@ export const ShareBar: React.FC<ShareBarProps> = ({ settings }) => {
   };
 
   return (
-    <section className="py-12 bg-[#FAF8F5] border-t border-[#EADBCE]">
+    <section className="py-12 bg-[#FBF4E8] border-t border-[#E8D4B8]">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
         
-        <h3 className="font-serif text-2xl font-medium text-[#2D2A26] mb-2">
+        <h3 className="font-serif text-2xl font-medium text-[#1B2F4E] mb-2">
           Lembra de alguém querido que a {hostFirstName} esqueceu?
         </h3>
-        <p className="text-sm text-[#68625B] mb-6">
+        <p className="text-sm text-[#4B5A72] mb-6">
           Envie uma mensagem para a {hostFirstName} no WhatsApp avisando! Ela vai adorar saber para não deixar ninguém especial de fora. Ou, se preferir, encaminhe o convite direto para a pessoa.
         </p>
 
         <div className="flex flex-wrap items-center justify-center gap-3">
           <button
             onClick={handleShare}
-            className="h-11 px-5 rounded-xl bg-[#C86D51] hover:bg-[#A95339] text-white text-xs font-semibold tracking-wide uppercase flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            className="h-11 px-5 rounded-full bg-[#CF3B25] hover:bg-[#A82D1B] text-white text-xs font-semibold tracking-wide uppercase flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
           >
             <Share2 className="w-4 h-4" />
             <span>Compartilhar Convite</span>
@@ -73,7 +73,7 @@ export const ShareBar: React.FC<ShareBarProps> = ({ settings }) => {
 
           <button
             onClick={handleNotifyHostWhatsApp}
-            className="h-11 px-5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-semibold tracking-wide uppercase flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
+            className="h-11 px-5 rounded-full bg-[#25D366] hover:bg-[#1EBE5D] text-white text-xs font-semibold tracking-wide uppercase flex items-center gap-2 shadow-xs transition-colors cursor-pointer"
           >
             <MessageCircle className="w-4 h-4" />
             <span>Avisar a {hostFirstName} no WhatsApp</span>
@@ -81,7 +81,7 @@ export const ShareBar: React.FC<ShareBarProps> = ({ settings }) => {
 
           <button
             onClick={handleCopyLink}
-            className="h-11 px-4 rounded-xl border border-[#EADBCE] bg-white hover:bg-[#F4EFEB] text-[#2D2A26] text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+            className="h-11 px-4 rounded-full border border-[#E8D4B8] bg-white hover:bg-[#F6EBD9] text-[#1B2F4E] text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
           >
             {copied ? (
               <>
@@ -90,7 +90,7 @@ export const ShareBar: React.FC<ShareBarProps> = ({ settings }) => {
               </>
             ) : (
               <>
-                <Copy className="w-4 h-4 text-[#68625B]" />
+                <Copy className="w-4 h-4 text-[#4B5A72]" />
                 <span>Copiar Link</span>
               </>
             )}
