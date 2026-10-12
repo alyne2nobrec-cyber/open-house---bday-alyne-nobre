@@ -208,6 +208,11 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
               const hasExternalLink = !!gift.purchaseUrl;
               const isPixType = gift.type === 'pix' || (gift.pixKey && !hasExternalLink);
 
+              const rawMemeUrl = (gift.memeUrl || (gift as { gifUrl?: string; gif?: string }).gifUrl || (gift as { gifUrl?: string; gif?: string }).gif || '').trim();
+              const hasMeme = Boolean(rawMemeUrl && getMemeKind(rawMemeUrl) !== 'invalid');
+              const memeKind = hasMeme ? getMemeKind(rawMemeUrl) : null;
+              const normalizedMeme = hasMeme ? normalizeMemeUrl(rawMemeUrl) : '';
+
               return (
                 <div
                   key={gift.id}
@@ -219,7 +224,36 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                 >
                   {/* Photo Container */}
                   <div className="relative aspect-[16/10] bg-[#F3E3CB] overflow-hidden">
-                    {gift.imageUrl ? (
+                    {hasMeme ? (
+                      memeKind === 'video' ? (
+                        <video
+                          src={normalizedMeme}
+                          autoPlay
+                          loop
+                          muted
+                          playsInline
+                          controls={false}
+                          className={`w-full h-full object-cover transition-transform duration-300 ${
+                            isSoldOut || isUnavailable ? 'grayscale-40' : 'hover:scale-105'
+                          }`}
+                        />
+                      ) : (
+                        <img
+                          src={normalizedMeme}
+                          alt={gift.name}
+                          referrerPolicy="no-referrer"
+                          loading="lazy"
+                          className={`w-full h-full object-cover transition-transform duration-300 ${
+                            isSoldOut || isUnavailable ? 'grayscale-40' : 'hover:scale-105'
+                          }`}
+                          onError={(e) => {
+                            if (gift.imageUrl && (e.currentTarget as HTMLImageElement).src !== gift.imageUrl) {
+                              (e.currentTarget as HTMLImageElement).src = gift.imageUrl;
+                            }
+                          }}
+                        />
+                      )
+                    ) : gift.imageUrl ? (
                       <img
                         src={gift.imageUrl}
                         alt={gift.name}
@@ -232,6 +266,13 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       <div className="w-full h-full flex flex-col items-center justify-center bg-[#FBF4E8] text-[#CF3B25] p-4 text-center">
                         <GiftIcon className="w-10 h-10 mb-2 opacity-50" />
                         <span className="text-xs text-[#5B6B82]">Foto em breve</span>
+                      </div>
+                    )}
+
+                    {/* Animated GIF badge */}
+                    {hasMeme && !isSoldOut && !isUnavailable && (
+                      <div className="absolute top-2.5 right-2.5 bg-[#1B2F4E]/85 backdrop-blur-xs text-[#F2B84B] font-mono text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-md shadow-xs flex items-center gap-1 border border-[#F2B84B]/30">
+                        <span>GIF</span>
                       </div>
                     )}
 
@@ -270,7 +311,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       </p>
 
                       {/* Meme badge if present */}
-                      {gift.memeUrl && getMemeKind(gift.memeUrl) !== 'invalid' && (
+                      {hasMeme && (
                         <div className="mb-3">
                           <button
                             type="button"
@@ -278,7 +319,7 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FDE9E3] hover:bg-[#F7E6D0] border border-[#E8D4B8] text-xs font-semibold text-[#A82D1B] transition-colors cursor-pointer"
                           >
                             <span>😂</span>
-                            <span>Ver meme</span>
+                            <span>Ver animação ampliada</span>
                           </button>
                         </div>
                       )}
@@ -397,67 +438,71 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
         )}
 
         {/* Modal / Overlay for viewing Gift Meme */}
-        {activeMemeGift && activeMemeGift.memeUrl && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
-            onClick={() => setActiveMemeGift(null)}
-          >
+        {activeMemeGift && (() => {
+          const rawMeme = (activeMemeGift.memeUrl || (activeMemeGift as { gifUrl?: string; gif?: string }).gifUrl || (activeMemeGift as { gifUrl?: string; gif?: string }).gif || '').trim();
+          if (!rawMeme || getMemeKind(rawMeme) === 'invalid') return null;
+          return (
             <div
-              className="relative max-w-sm sm:max-w-md w-full bg-[#FBF4E8] border border-[#E8D4B8] rounded-3xl p-5 shadow-2xl overflow-hidden"
-              onClick={(e) => e.stopPropagation()}
+              className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+              onClick={() => setActiveMemeGift(null)}
             >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">😂</span>
-                  <h4 className="font-serif text-base font-semibold text-[#1B2F4E] truncate">
-                    {activeMemeGift.name}
-                  </h4>
+              <div
+                className="relative max-w-sm sm:max-w-md w-full bg-[#FBF4E8] border border-[#E8D4B8] rounded-3xl p-5 shadow-2xl overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">😂</span>
+                    <h4 className="font-serif text-base font-semibold text-[#1B2F4E] truncate">
+                      {activeMemeGift.name}
+                    </h4>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveMemeGift(null)}
+                    className="w-8 h-8 rounded-full bg-[#F6EBD9] hover:bg-[#E8D4B8] text-[#4B5A72] hover:text-[#1B2F4E] flex items-center justify-center transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveMemeGift(null)}
-                  className="w-8 h-8 rounded-full bg-[#F6EBD9] hover:bg-[#E8D4B8] text-[#4B5A72] hover:text-[#1B2F4E] flex items-center justify-center transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
 
-              <div className="rounded-2xl overflow-hidden bg-black/5 border border-[#E8D4B8] flex items-center justify-center min-h-[180px] max-h-[360px]">
-                {getMemeKind(activeMemeGift.memeUrl) === 'video' ? (
-                  <video
-                    src={normalizeMemeUrl(activeMemeGift.memeUrl)}
-                    autoPlay
-                    loop
-                    muted
-                    playsInline
-                    controls={false}
-                    className="w-full h-auto max-h-[360px] object-contain"
-                    onError={() => setActiveMemeGift(null)}
-                  />
-                ) : (
-                  <img
-                    src={normalizeMemeUrl(activeMemeGift.memeUrl)}
-                    alt={`Meme do presente ${activeMemeGift.name}`}
-                    referrerPolicy="no-referrer"
-                    loading="lazy"
-                    className="w-full h-auto max-h-[360px] object-contain"
-                    onError={() => setActiveMemeGift(null)}
-                  />
-                )}
-              </div>
+                <div className="rounded-2xl overflow-hidden bg-black/5 border border-[#E8D4B8] flex items-center justify-center min-h-[180px] max-h-[360px]">
+                  {getMemeKind(rawMeme) === 'video' ? (
+                    <video
+                      src={normalizeMemeUrl(rawMeme)}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      controls={false}
+                      className="w-full h-auto max-h-[360px] object-contain"
+                      onError={() => setActiveMemeGift(null)}
+                    />
+                  ) : (
+                    <img
+                      src={normalizeMemeUrl(rawMeme)}
+                      alt={`Meme do presente ${activeMemeGift.name}`}
+                      referrerPolicy="no-referrer"
+                      loading="lazy"
+                      className="w-full h-auto max-h-[360px] object-contain"
+                      onError={() => setActiveMemeGift(null)}
+                    />
+                  )}
+                </div>
 
-              <div className="mt-3 text-center">
-                <button
-                  type="button"
-                  onClick={() => setActiveMemeGift(null)}
-                  className="w-full h-9 rounded-xl bg-[#F6EBD9] hover:bg-[#E8D4B8] text-xs font-semibold text-[#1B2F4E] transition-colors cursor-pointer"
-                >
-                  Fechar
-                </button>
+                <div className="mt-3 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setActiveMemeGift(null)}
+                    className="w-full h-9 rounded-xl bg-[#F6EBD9] hover:bg-[#E8D4B8] text-xs font-semibold text-[#1B2F4E] transition-colors cursor-pointer"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
     </section>

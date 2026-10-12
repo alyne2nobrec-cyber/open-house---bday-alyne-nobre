@@ -430,19 +430,55 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
         ) : (
           <div>
             <div className="flex gap-4 items-start mb-6">
-              {gift.imageUrl ? (
-                <img
-                  src={gift.imageUrl}
-                  alt={gift.name}
-                  referrerPolicy="no-referrer"
-                  className="w-20 h-20 rounded-2xl object-cover border border-[#E8D4B8] shrink-0"
-                />
-              ) : (
-                <div className="w-20 h-20 rounded-2xl bg-[#F7E6D0] flex items-center justify-center shrink-0 text-[#CF3B25]">
-                  <ShoppingBag className="w-8 h-8" />
-                </div>
-              )}
-              <div>
+              {(() => {
+                const rawMeme = (gift.memeUrl || (gift as { gifUrl?: string; gif?: string }).gifUrl || (gift as { gifUrl?: string; gif?: string }).gif || '').trim();
+                const hasMeme = Boolean(rawMeme && getMemeKind(rawMeme) !== 'invalid');
+                const memeKind = hasMeme ? getMemeKind(rawMeme) : null;
+                const normalizedMeme = hasMeme ? normalizeMemeUrl(rawMeme) : '';
+
+                if (hasMeme) {
+                  return memeKind === 'video' ? (
+                    <video
+                      src={normalizedMeme}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      className="w-20 h-20 rounded-2xl object-cover border border-[#E8D4B8] shrink-0"
+                    />
+                  ) : (
+                    <img
+                      src={normalizedMeme}
+                      alt={gift.name}
+                      referrerPolicy="no-referrer"
+                      className="w-20 h-20 rounded-2xl object-cover border border-[#E8D4B8] shrink-0"
+                      onError={(e) => {
+                        if (gift.imageUrl && (e.currentTarget as HTMLImageElement).src !== gift.imageUrl) {
+                          (e.currentTarget as HTMLImageElement).src = gift.imageUrl;
+                        }
+                      }}
+                    />
+                  );
+                }
+
+                if (gift.imageUrl) {
+                  return (
+                    <img
+                      src={gift.imageUrl}
+                      alt={gift.name}
+                      referrerPolicy="no-referrer"
+                      className="w-20 h-20 rounded-2xl object-cover border border-[#E8D4B8] shrink-0"
+                    />
+                  );
+                }
+
+                return (
+                  <div className="w-20 h-20 rounded-2xl bg-[#F7E6D0] flex items-center justify-center shrink-0 text-[#CF3B25]">
+                    <ShoppingBag className="w-8 h-8" />
+                  </div>
+                );
+              })()}
+              <div className="flex-1 min-w-0">
                 <h3 className="font-serif text-lg sm:text-xl font-medium text-[#1B2F4E] leading-tight">
                   {gift.name}
                 </h3>
@@ -460,37 +496,42 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                   </span>
                 </div>
 
-                {gift.memeUrl && getMemeKind(gift.memeUrl) !== 'invalid' && (
-                  <div className="mt-3">
-                    <div className="inline-block rounded-xl overflow-hidden border border-[#E8D4B8] bg-black/5 max-h-36 max-w-[200px]">
-                      {getMemeKind(gift.memeUrl) === 'video' ? (
-                        <video
-                          src={normalizeMemeUrl(gift.memeUrl)}
-                          autoPlay
-                          loop
-                          muted
-                          playsInline
-                          controls={false}
-                          className="w-full h-auto max-h-36 object-contain"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <img
-                          src={normalizeMemeUrl(gift.memeUrl)}
-                          alt="Meme do presente"
-                          referrerPolicy="no-referrer"
-                          loading="lazy"
-                          className="w-full h-auto max-h-36 object-contain"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      )}
+                {(() => {
+                  const rawMeme = (gift.memeUrl || (gift as { gifUrl?: string; gif?: string }).gifUrl || (gift as { gifUrl?: string; gif?: string }).gif || '').trim();
+                  if (!rawMeme || getMemeKind(rawMeme) === 'invalid') return null;
+                  const isVideo = getMemeKind(rawMeme) === 'video';
+                  return (
+                    <div className="mt-3">
+                      <div className="inline-block rounded-xl overflow-hidden border border-[#E8D4B8] bg-black/5 max-h-36 max-w-[200px]">
+                        {isVideo ? (
+                          <video
+                            src={normalizeMemeUrl(rawMeme)}
+                            autoPlay
+                            loop
+                            muted
+                            playsInline
+                            controls={false}
+                            className="w-full h-auto max-h-36 object-contain"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <img
+                            src={normalizeMemeUrl(rawMeme)}
+                            alt="Meme do presente"
+                            referrerPolicy="no-referrer"
+                            loading="lazy"
+                            className="w-full h-auto max-h-36 object-contain"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
               </div>
             </div>
 
