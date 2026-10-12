@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import confetti from 'canvas-confetti';
 import QRCode from 'qrcode';
-import { X, Copy, Check, Heart, ExternalLink, QrCode as PixIcon, AlertCircle, ShoppingBag, ShieldCheck, Truck } from 'lucide-react';
+import { X, Copy, Check, Heart, ExternalLink, QrCode as PixIcon, AlertCircle, ShoppingBag, ShieldCheck, Truck, ChevronDown, ChevronUp } from 'lucide-react';
 import { Gift, EventSettings } from '../types';
 import { DEFAULT_SETTINGS } from '../data/defaultData';
 import { reserveGiftWithTransaction } from '../services/giftService';
@@ -32,6 +32,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
   const [copiaEColaCopied, setCopiaEColaCopied] = useState(false);
   const [shippingCopied, setShippingCopied] = useState(false);
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
 
   const giftPixKey = (gift?.pixKey || '').trim();
   const activePixKey = giftPixKey && giftPixKey !== DEFAULT_SETTINGS.pixKey
@@ -482,9 +483,34 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
                 <h3 className="font-serif text-lg sm:text-xl font-medium text-[#1B2F4E] leading-tight">
                   {gift.name}
                 </h3>
-                <p className="text-xs text-[#4B5A72] mt-1 line-clamp-2">
-                  {gift.description}
-                </p>
+                <div className="mt-1">
+                  <p
+                    className={`text-xs text-[#4B5A72] leading-relaxed transition-all ${
+                      !isDescriptionExpanded && (gift.description || '').length > 80 ? 'line-clamp-2' : ''
+                    }`}
+                  >
+                    {gift.description}
+                  </p>
+                  {(gift.description || '').length > 80 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsDescriptionExpanded((v) => !v)}
+                      className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#CF3B25] hover:text-[#A82D1B] transition-colors cursor-pointer"
+                    >
+                      {isDescriptionExpanded ? (
+                        <>
+                          <span>Ler menos</span>
+                          <ChevronUp className="w-3 h-3" />
+                        </>
+                      ) : (
+                        <>
+                          <span>Ler mais</span>
+                          <ChevronDown className="w-3 h-3" />
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
                 <div className="mt-2 flex items-center gap-3 text-xs">
                   <span className="font-semibold text-[#CF3B25] text-sm tabular-nums">
                     R$ {gift.price.toLocaleString('pt-BR')}
