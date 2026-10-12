@@ -30,6 +30,14 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
   const [sortBy, setSortBy] = useState<SortOption>('default');
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const [activeMemeGift, setActiveMemeGift] = useState<Gift | null>(null);
+  const [expandedDescriptions, setExpandedDescriptions] = useState<Record<string, boolean>>({});
+
+  const toggleDescription = (giftId: string) => {
+    setExpandedDescriptions((prev) => ({
+      ...prev,
+      [giftId]: !prev[giftId],
+    }));
+  };
 
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE);
@@ -306,9 +314,41 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
                       </h3>
 
                       {/* Description */}
-                      <p className="text-xs sm:text-sm text-[#4B5A72] leading-relaxed line-clamp-3 mb-3">
-                        {gift.description}
-                      </p>
+                      {(() => {
+                        const isExpanded = !!expandedDescriptions[gift.id];
+                        const isLong = (gift.description || '').length > 95;
+
+                        return (
+                          <div className="mb-3">
+                            <p
+                              className={`text-xs sm:text-sm text-[#4B5A72] leading-relaxed transition-all ${
+                                !isExpanded && isLong ? 'line-clamp-3' : ''
+                              }`}
+                            >
+                              {gift.description}
+                            </p>
+                            {isLong && (
+                              <button
+                                type="button"
+                                onClick={() => toggleDescription(gift.id)}
+                                className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#CF3B25] hover:text-[#A82D1B] transition-colors cursor-pointer"
+                              >
+                                {isExpanded ? (
+                                  <>
+                                    <span>Ler menos</span>
+                                    <ChevronUp className="w-3 h-3" />
+                                  </>
+                                ) : (
+                                  <>
+                                    <span>Ler mais</span>
+                                    <ChevronDown className="w-3 h-3" />
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Meme badge if present */}
                       {hasMeme && (
