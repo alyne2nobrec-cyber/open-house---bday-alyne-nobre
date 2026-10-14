@@ -1,25 +1,15 @@
-import {
-  collection,
-  doc,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  query,
-  orderBy,
-  writeBatch,
-  serverTimestamp,
-} from 'firebase/firestore';
-import { ref, deleteObject } from 'firebase/storage';
-import { db, storage } from '../lib/firebase';
 import { GalleryMediaItem } from '../types';
 
-const GALLERY_COLLECTION = 'galleryMedia';
 const LOCAL_STORAGE_GALLERY_KEY = 'alyne_gallery_media_items_v1';
+const GALLERY_EVENT_NAME = 'alyne:gallery-updated';
 
 let localGalleryListeners: Array<(items: GalleryMediaItem[]) => void> = [];
 
+/**
+ * Gets cached gallery items from local storage.
+ */
 function getLocalGalleryItems(): GalleryMediaItem[] {
+  if (typeof localStorage === 'undefined') return [];
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_GALLERY_KEY);
     if (!raw) return [];
@@ -31,190 +21,225 @@ function getLocalGalleryItems(): GalleryMediaItem[] {
   return [];
 }
 
+/**
+ * Saves gallery items to local storage and notifies active listeners.
+ */
 function saveLocalGalleryItems(items: GalleryMediaItem[]): void {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_GALLERY_KEY, JSON.stringify(items));
-    localGalleryListeners.forEach((fn) => fn([...items]));
-  } catch {}
+  const sorted = [...items].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(LOCAL_STORAGE_GALLERY_KEY, JSON.stringify(sorted));
+    } catch {}
+  }
+
+  // Notify listeners in the current process
+  localGalleryListeners.forEach((fn) => {
+    try {
+      fn([...sorted]);
+    } catch (e) {
+      console.warn('Listener error in gallery update:', e);
+    }
+  });
+
+  // Notify other components/tabs
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent(GALLERY_EVENT_NAME, { detail: sorted }));
+    } catch {}
+  }
 }
 
 /**
- * Real-time subscription to gallery media items ordered by display order.
+ * Fetches the gallery items from the backend API and syncs to local state.
+ */
+async function fetchServerGalleryItems(): Promise<GalleryMediaItem[]> {
+  try {
+    const res = await fetch('/api/gallery', {
+      headers: {
+        'Cache-Control': 'no-cache',
+      },
+    });
+    if (res.ok) {
+      const serverItems = await res.json();
+      if (Array.isArray(serverItems)) {
+        // If server has items, adopt them
+        if (serverItems.length > 0) {
+          saveLocalGalleryItems(serverItems);
+          return serverItems;
+        } else {
+          // If server is empty but local has items (e.g. uploaded before server was up), sync them up
+          const localItems = getLocalGalleryItems();
+          if (localItems.length > 0) {
+            for (const item of localItems) {
+              try {
+                await fetch('/api/gallery', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(item),
+                });
+              } catch {}
+            }
+          }
+          return localItems;
+        }
+      }
+    }
+  } catch (err) {
+    // Backend fetch failed (e.g., offline or dev mode); fall back gracefully to local storage
+    console.warn('Note: Using local gallery storage (backend offline or loading):', err);
+  }
+  return getLocalGalleryItems();
+}
+
+/**
+ * Reactive subscription to gallery media items.
+ * Immediately returns local cached items, syncs with backend, and keeps all UI views in sync.
  */
 export function subscribeGalleryMedia(
   callback: (items: GalleryMediaItem[]) => void,
-  onError?: (err: Error) => void
+  _onError?: (err: Error) => void
 ): () => void {
-  if (!db) {
-    const initial = getLocalGalleryItems();
-    callback(initial);
-    localGalleryListeners.push(callback);
-    return () => {
-      localGalleryListeners = localGalleryListeners.filter((fn) => fn !== callback);
-    };
+  // 1. Immediately emit cached items to avoid flash of empty content
+  const initial = getLocalGalleryItems();
+  callback(initial);
+
+  // 2. Register listener
+  localGalleryListeners.push(callback);
+
+  // 3. Initial fetch from server
+  fetchServerGalleryItems().then((items) => {
+    callback(items);
+  });
+
+  // 4. Custom event listener for same-window component updates
+  const handleCustomEvent = (e: Event) => {
+    const custom = e as CustomEvent<GalleryMediaItem[]>;
+    if (custom.detail && Array.isArray(custom.detail)) {
+      callback(custom.detail);
+    } else {
+      callback(getLocalGalleryItems());
+    }
+  };
+
+  // 5. Storage event for cross-tab synchronization
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (e.key === LOCAL_STORAGE_GALLERY_KEY) {
+      callback(getLocalGalleryItems());
+    }
+  };
+
+  // 6. Polling interval to keep multiple devices in sync (every 25 seconds)
+  let pollInterval: any = null;
+  if (typeof window !== 'undefined') {
+    window.addEventListener(GALLERY_EVENT_NAME, handleCustomEvent);
+    window.addEventListener('storage', handleStorageEvent);
+
+    pollInterval = setInterval(() => {
+      fetchServerGalleryItems().then((items) => {
+        callback(items);
+      });
+    }, 25000);
   }
 
-  const collRef = collection(db, GALLERY_COLLECTION);
-  const q = query(collRef, orderBy('order', 'asc'));
-
-  const unsubscribe = onSnapshot(
-    q,
-    (snapshot) => {
-      const items: GalleryMediaItem[] = snapshot.docs.map((docSnap) => {
-        const data = docSnap.data();
-        return {
-          id: docSnap.id,
-          type: (data.type === 'video' ? 'video' : 'image') as 'image' | 'video',
-          url: data.url || '',
-          thumbnailUrl: data.thumbnailUrl || undefined,
-          caption: data.caption || '',
-          order: typeof data.order === 'number' ? data.order : 0,
-          fileName: data.fileName || undefined,
-          fileSize: data.fileSize || undefined,
-          createdAt: data.createdAt,
-          updatedAt: data.updatedAt,
-        };
-      });
-
-      // Synchronize to localStorage backup
-      try {
-        localStorage.setItem(LOCAL_STORAGE_GALLERY_KEY, JSON.stringify(items));
-      } catch {}
-
-      callback(items);
-    },
-    (error) => {
-      console.warn('Gallery query with orderBy failed, retrying simple snapshot:', error);
-      // Fallback: try querying without orderBy if composite index or permission issue happens
-      const fallbackUnsub = onSnapshot(
-        collRef,
-        (snapshot) => {
-          const items: GalleryMediaItem[] = snapshot.docs.map((docSnap) => {
-            const data = docSnap.data();
-            return {
-              id: docSnap.id,
-              type: (data.type === 'video' ? 'video' : 'image') as 'image' | 'video',
-              url: data.url || '',
-              thumbnailUrl: data.thumbnailUrl || undefined,
-              caption: data.caption || '',
-              order: typeof data.order === 'number' ? data.order : 0,
-              fileName: data.fileName || undefined,
-              fileSize: data.fileSize || undefined,
-              createdAt: data.createdAt,
-              updatedAt: data.updatedAt,
-            };
-          });
-          items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-          callback(items);
-        },
-        (fallbackError) => {
-          console.error('Error subscribing to galleryMedia:', fallbackError);
-          const cached = getLocalGalleryItems();
-          callback(cached);
-          if (onError) onError(fallbackError);
-        }
-      );
-      return fallbackUnsub;
+  // Cleanup function
+  return () => {
+    localGalleryListeners = localGalleryListeners.filter((fn) => fn !== callback);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener(GALLERY_EVENT_NAME, handleCustomEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+      if (pollInterval) clearInterval(pollInterval);
     }
-  );
-
-  return unsubscribe;
+  };
 }
 
 /**
  * Adds a new photo or video to the gallery.
+ * Saves to local cache and server API, hosted directly on Cloudinary.
  */
 export async function addGalleryMediaItem(
   item: Omit<GalleryMediaItem, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
-  if (!db) {
-    const id = `local-gallery-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-    const newItem: GalleryMediaItem = {
-      ...item,
-      id,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    const current = getLocalGalleryItems();
-    current.push(newItem);
-    saveLocalGalleryItems(current);
-    return id;
+  const localId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+  const newItem: GalleryMediaItem = {
+    ...item,
+    id: localId,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  // Immediate local update
+  const current = getLocalGalleryItems();
+  current.push(newItem);
+  saveLocalGalleryItems(current);
+
+  // Background server sync
+  try {
+    const res = await fetch('/api/gallery', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newItem),
+    });
+
+    if (res.ok) {
+      const serverCreated = await res.json();
+      if (serverCreated && serverCreated.id) {
+        // Update local item with confirmed server id if different
+        const updated = getLocalGalleryItems().map((it) =>
+          it.id === localId ? { ...it, ...serverCreated } : it
+        );
+        saveLocalGalleryItems(updated);
+        return serverCreated.id;
+      }
+    }
+  } catch (err) {
+    console.warn('Server sync warning (saved locally in browser):', err);
   }
 
-  const collRef = collection(db, GALLERY_COLLECTION);
-  const docRef = await addDoc(collRef, {
-    type: item.type,
-    url: item.url,
-    thumbnailUrl: item.thumbnailUrl || null,
-    caption: item.caption || '',
-    order: item.order,
-    fileName: item.fileName || null,
-    fileSize: item.fileSize || null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  });
-
-  return docRef.id;
+  return localId;
 }
 
 /**
- * Updates an existing gallery item's caption or other fields.
+ * Updates an existing gallery item's caption, order, or thumbnail.
  */
 export async function updateGalleryMediaItem(
   id: string,
   updates: Partial<Pick<GalleryMediaItem, 'caption' | 'order' | 'thumbnailUrl'>>
 ): Promise<void> {
-  if (!db) {
-    const current = getLocalGalleryItems();
-    const idx = current.findIndex((item) => item.id === id);
-    if (idx !== -1) {
-      current[idx] = { ...current[idx], ...updates, updatedAt: new Date().toISOString() };
-      saveLocalGalleryItems(current);
-    }
-    return;
+  const current = getLocalGalleryItems();
+  const idx = current.findIndex((item) => item.id === id);
+  if (idx !== -1) {
+    current[idx] = { ...current[idx], ...updates, updatedAt: new Date().toISOString() };
+    saveLocalGalleryItems(current);
   }
 
-  const docRef = doc(db, GALLERY_COLLECTION, id);
-  await updateDoc(docRef, {
-    ...updates,
-    updatedAt: serverTimestamp(),
-  });
+  try {
+    await fetch(`/api/gallery/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+  } catch (err) {
+    console.warn('Server update warning:', err);
+  }
 }
 
 /**
- * Deletes a media item from Firestore and attempts removal from Storage.
+ * Deletes a media item from the gallery.
  */
 export async function deleteGalleryMediaItem(
   id: string,
-  mediaItem?: Pick<GalleryMediaItem, 'url' | 'thumbnailUrl'>
+  _mediaItem?: Pick<GalleryMediaItem, 'url' | 'thumbnailUrl'>
 ): Promise<void> {
-  if (db) {
-    const docRef = doc(db, GALLERY_COLLECTION, id);
-    await deleteDoc(docRef);
-  }
-
-  // Also remove from local cache
   const current = getLocalGalleryItems();
   const filtered = current.filter((item) => item.id !== id);
   saveLocalGalleryItems(filtered);
 
-  // Try cleaning up storage file if it belongs to Firebase Storage
-  if (storage && mediaItem?.url && mediaItem.url.includes('firebasestorage.googleapis.com')) {
-    try {
-      const storageRef = ref(storage, mediaItem.url);
-      await deleteObject(storageRef);
-    } catch (err) {
-      console.warn('Storage file deletion ignored/skipped:', err);
-    }
-
-    if (mediaItem.thumbnailUrl && mediaItem.thumbnailUrl.includes('firebasestorage.googleapis.com')) {
-      try {
-        const thumbRef = ref(storage, mediaItem.thumbnailUrl);
-        await deleteObject(thumbRef);
-      } catch (err) {
-        console.warn('Storage thumb deletion ignored/skipped:', err);
-      }
-    }
+  try {
+    await fetch(`/api/gallery/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  } catch (err) {
+    console.warn('Server delete warning:', err);
   }
 }
 
@@ -227,20 +252,15 @@ export async function reorderGalleryMediaItems(items: GalleryMediaItem[]): Promi
     order: index,
   }));
 
-  const firestoreDb = db;
-  if (!firestoreDb) {
-    saveLocalGalleryItems(updatedItems);
-    return;
-  }
+  saveLocalGalleryItems(updatedItems);
 
-  const batch = writeBatch(firestoreDb);
-  updatedItems.forEach((item) => {
-    const docRef = doc(firestoreDb, GALLERY_COLLECTION, item.id);
-    batch.update(docRef, {
-      order: item.order,
-      updatedAt: serverTimestamp(),
+  try {
+    await fetch('/api/gallery/reorder', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: updatedItems }),
     });
-  });
-
-  await batch.commit();
+  } catch (err) {
+    console.warn('Server reorder warning:', err);
+  }
 }

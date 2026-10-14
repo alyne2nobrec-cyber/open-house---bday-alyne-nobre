@@ -29,6 +29,7 @@ import {
   ArrowRight,
   Package,
   Truck,
+  Cloud,
 } from 'lucide-react';
 import { Gift, GiftCategory, GiftReservation, Guest, GuestStatus, EventSettings, GiftType, GiftStatus, GiftFulfillmentStatus } from '../../types';
 import {
@@ -58,6 +59,7 @@ import { downloadCsvFile } from '../../utils/csvExport';
 import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
 import { normalizeMemeUrl, getMemeKind } from '../../utils/memeMedia';
+import { saveCloudinaryConfigLocally, testCloudinaryConnection } from '../../utils/cloudinary';
 import { WhatsAppTab } from './WhatsAppTab';
 import { GalleryTab } from './GalleryTab';
 
@@ -100,6 +102,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Settings edit state
   const [settingsForm, setSettingsForm] = useState<EventSettings>(settings);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [testingCloudinarySettings, setTestingCloudinarySettings] = useState(false);
+  const [cloudinarySettingsTestResult, setCloudinarySettingsTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
   // Guest search and filter
   const [guestSearch, setGuestSearch] = useState('');
@@ -697,6 +701,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Save Settings
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (settingsForm.cloudinaryCloudName || settingsForm.cloudinaryUploadPreset) {
+      saveCloudinaryConfigLocally({
+        cloudName: settingsForm.cloudinaryCloudName || '',
+        uploadPreset: settingsForm.cloudinaryUploadPreset || '',
+      });
+    }
     await updateEventSettings(settingsForm);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 3000);
@@ -2854,6 +2864,86 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </div>
               </div>
 
+              {/* Armazenamento de Fotos e Vídeos (Cloudinary) */}
+              <div className="p-5 rounded-2xl bg-[#FAF8F5] border border-[#EADBCE] space-y-4">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wider text-[#A95339] flex items-center gap-1.5">
+                    <Cloud className="w-4 h-4 text-[#C86D51]" />
+                    <span>Armazenamento de Fotos e Vídeos (Cloudinary ☁️)</span>
+                  </div>
+                  <p className="text-[11px] text-[#68625B] mt-0.5">
+                    Hospedagem profissional e gratuita para fotos e vídeos da "Galeria do Apê" e presentes. Substitui o Firebase Storage sem limites de tamanho de regras.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Cloud Name
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.cloudinaryCloudName || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, cloudinaryCloudName: e.target.value })}
+                      placeholder="Ex: seu-cloud-name"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider mb-1">
+                      Upload Preset (Unsigned)
+                    </label>
+                    <input
+                      type="text"
+                      value={settingsForm.cloudinaryUploadPreset || ''}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, cloudinaryUploadPreset: e.target.value })}
+                      placeholder="Ex: galeria_ape ou ml_default"
+                      className="w-full h-10 px-3 rounded-xl border border-[#EADBCE] bg-white text-xs text-[#2D2A26] outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={testingCloudinarySettings || !settingsForm.cloudinaryCloudName || !settingsForm.cloudinaryUploadPreset}
+                    onClick={async () => {
+                      setTestingCloudinarySettings(true);
+                      setCloudinarySettingsTestResult(null);
+                      try {
+                        const res = await testCloudinaryConnection(settingsForm.cloudinaryCloudName || '', settingsForm.cloudinaryUploadPreset || '');
+                        setCloudinarySettingsTestResult(res);
+                      } catch (err: any) {
+                        setCloudinarySettingsTestResult({ success: false, message: err.message || 'Erro' });
+                      } finally {
+                        setTestingCloudinarySettings(false);
+                      }
+                    }}
+                    className="h-9 px-3.5 rounded-xl border border-[#C86D51] text-[#C86D51] hover:bg-[#C86D51]/5 text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors"
+                  >
+                    {testingCloudinarySettings ? 'Testando conexão...' : 'Testar Conexão com Cloudinary'}
+                  </button>
+                </div>
+
+                {cloudinarySettingsTestResult && (
+                  <div
+                    className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                      cloudinarySettingsTestResult.success
+                        ? 'bg-emerald-50 border border-emerald-200 text-emerald-800'
+                        : 'bg-red-50 border border-red-200 text-red-800'
+                    }`}
+                  >
+                    {cloudinarySettingsTestResult.success ? (
+                      <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{cloudinarySettingsTestResult.message}</span>
+                  </div>
+                )}
+              </div>
+
               {settingsSaved && (
                 <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs font-medium text-emerald-800 flex items-center gap-2">
                   <Check className="w-4 h-4 text-emerald-600" />
@@ -2883,7 +2973,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         {/* ===================== TAB: GALERIA DO APÊ ===================== */}
         {activeTab === 'gallery' && (
-          <GalleryTab />
+          <GalleryTab settings={settings} />
         )}
 
       </main>
