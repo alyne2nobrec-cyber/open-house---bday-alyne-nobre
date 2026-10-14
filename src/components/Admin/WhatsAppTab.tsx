@@ -43,86 +43,172 @@ type StatusFilter = 'all' | 'pending' | 'confirmed' | 'declined' | 'with_gifts';
 type PhoneFilter = 'all' | 'has_phone' | 'no_phone';
 type SendStatusFilter = 'all' | 'not_sent' | 'sent';
 
-const STORAGE_SENT_KEY = 'alyne_whatsapp_sent_guests';
+interface TemplateConfig {
+  title: string;
+  shortLabel: string;
+  defaultText: string;
+}
+
+const TEMPLATES_CONFIG: Record<TemplateType, TemplateConfig> = {
+  rsvp_invite: {
+    title: 'Convite para comemorar',
+    shortLabel: 'Convite',
+    defaultText:
+      'Oi, {primeiro_nome}! Tudo bem? 🏡❤️\n\nEstou começando uma fase nova e quero comemorar meu aniversário e meu cantinho novo perto de gente querida. Vou ficar muito feliz se você puder vir!\n\nQuando puder, me avisa por aqui:\n👉 {link_rsvp}\n\nUm beijo!',
+  },
+  rsvp_reminder: {
+    title: 'Lembrete de confirmação',
+    shortLabel: 'Lembrete',
+    defaultText:
+      'Oi, {primeiro_nome}! Tudo bem? ❤️\n\nEstou organizando os detalhes do meu Open House e queria saber se você vai conseguir vir. Sem pressão, tá? É só pra eu conseguir me planejar direitinho.\n\nVocê consegue me avisar por aqui?\n👉 {link_rsvp}\n\nObrigada!',
+  },
+  event_details: {
+    title: 'Detalhes do encontro',
+    shortLabel: 'Detalhes',
+    defaultText:
+      'Oi, {primeiro_nome}! Nosso encontro está chegando 🏡❤️\n\nMeu Open House vai ser no dia {data}, a partir das {horario}.\n\n📍 {local}\n{endereco}\nComo chegar: {maps}\n\nSe tiver qualquer dúvida, me chama. Até lá!',
+  },
+  gift_registry: {
+    title: 'Lista da casa nova',
+    shortLabel: 'Lista',
+    defaultText:
+      'Oi, {primeiro_nome}! ❤️\n\nAlgumas pessoas me perguntaram o que está faltando no meu cantinho, então deixei uma listinha com algumas ideias. Mas fica à vontade, viu? Sem pressão nenhuma — o que mais quero é comemorar com você!\n👉 {link_presentes}',
+  },
+  gift_thanks: {
+    title: 'Obrigada pelo carinho',
+    shortLabel: 'Obrigada',
+    defaultText:
+      'Oi, {primeiro_nome}! ❤️\n\nVi que você escolheu "{presente}" pra minha casa nova. Muito obrigada pelo carinho e por fazer parte dessa conquista! Vou lembrar de você sempre que usar.\n\nEspero te dar um abraço no dia {data}!',
+  },
+  custom: {
+    title: 'Mensagem livre',
+    shortLabel: 'Livre',
+    defaultText:
+      'Oi, {primeiro_nome}!\n\nQueria te contar uma novidade: estou começando uma fase nova e vou comemorar com pessoas queridas. Dá uma olhada por aqui: {link}\n\nUm beijo,\n{anfitriã}',
+  },
+};
+
+const TEMPLATE_KEYS: TemplateType[] = [
+  'rsvp_invite',
+  'rsvp_reminder',
+  'event_details',
+  'gift_registry',
+  'gift_thanks',
+  'custom',
+];
+
+const STORAGE_SENT_BY_TEMPLATE_KEY = 'alyne_whatsapp_sent_by_template';
+const STORAGE_SENT_KEY_LEGACY = 'alyne_whatsapp_sent_guests';
 
 export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   guests,
   reservations,
   settings,
 }) => {
-  // 1. Sent status tracking (persisted in localStorage)
-  const [sentIds, setSentIds] = useState<string[]>(() => {
+  // 1. Sent status tracking per message template (persisted in localStorage)
+  const [sentMap, setSentMap] = useState<Record<TemplateType, string[]>>(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_SENT_KEY);
-      return stored ? JSON.parse(stored) : [];
+      const stored = localStorage.getItem(STORAGE_SENT_BY_TEMPLATE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          rsvp_invite: Array.isArray(parsed?.rsvp_invite) ? parsed.rsvp_invite : [],
+          rsvp_reminder: Array.isArray(parsed?.rsvp_reminder) ? parsed.rsvp_reminder : [],
+          event_details: Array.isArray(parsed?.event_details) ? parsed.event_details : [],
+          gift_registry: Array.isArray(parsed?.gift_registry) ? parsed.gift_registry : [],
+          gift_thanks: Array.isArray(parsed?.gift_thanks) ? parsed.gift_thanks : [],
+          custom: Array.isArray(parsed?.custom) ? parsed.custom : [],
+        };
+      }
+      // Migration from previous single-list storage: copy existing marked guests to "rsvp_invite"
+      const legacy = localStorage.getItem(STORAGE_SENT_KEY_LEGACY);
+      const legacyList = legacy ? JSON.parse(legacy) : [];
+      return {
+        rsvp_invite: Array.isArray(legacyList) ? legacyList : [],
+        rsvp_reminder: [],
+        event_details: [],
+        gift_registry: [],
+        gift_thanks: [],
+        custom: [],
+      };
     } catch {
-      return [];
+      return {
+        rsvp_invite: [],
+        rsvp_reminder: [],
+        event_details: [],
+        gift_registry: [],
+        gift_thanks: [],
+        custom: [],
+      };
     }
   });
 
-  const saveSentIds = (next: string[]) => {
-    setSentIds(next);
+  const saveSentMap = (next: Record<TemplateType, string[]>) => {
+    setSentMap(next);
     try {
-      localStorage.setItem(STORAGE_SENT_KEY, JSON.stringify(next));
+      localStorage.setItem(STORAGE_SENT_BY_TEMPLATE_KEY, JSON.stringify(next));
     } catch (e) {
-      console.warn('Failed to save sent IDs to localStorage', e);
+      console.warn('Failed to save sent IDs by template to localStorage', e);
     }
   };
 
-  const toggleSentStatus = (id: string) => {
-    const next = sentIds.includes(id)
-      ? sentIds.filter((item) => item !== id)
-      : [...sentIds, id];
-    saveSentIds(next);
+  const isGuestSentForTemplate = (guestId: string, template: TemplateType): boolean => {
+    return (sentMap[template] || []).includes(guestId);
   };
 
-  const handleClearSentHistory = () => {
-    if (confirm('Deseja zerar o histórico de mensagens enviadas desta sessão?')) {
-      saveSentIds([]);
+  const toggleSentForTemplate = (guestId: string, template: TemplateType) => {
+    const current = sentMap[template] || [];
+    const nextList = current.includes(guestId)
+      ? current.filter((id) => id !== guestId)
+      : [...current, guestId];
+    saveSentMap({
+      ...sentMap,
+      [template]: nextList,
+    });
+  };
+
+  const markGuestSentForTemplate = (guestId: string, template: TemplateType) => {
+    const current = sentMap[template] || [];
+    if (!current.includes(guestId)) {
+      saveSentMap({
+        ...sentMap,
+        [template]: [...current, guestId],
+      });
     }
-  };
-
-  // 2. Templates definitions
-  const defaultTemplates: Record<TemplateType, { title: string; defaultText: string }> = {
-    rsvp_invite: {
-      title: 'Convite para comemorar',
-      defaultText:
-        'Oi, {primeiro_nome}! Tudo bem? 🏡❤️\n\nEstou começando uma fase nova e quero comemorar meu aniversário e meu cantinho novo perto de gente querida. Vou ficar muito feliz se você puder vir!\n\nQuando puder, me avisa por aqui:\n👉 {link_rsvp}\n\nUm beijo!',
-    },
-    rsvp_reminder: {
-      title: 'Lembrete de confirmação',
-      defaultText:
-        'Oi, {primeiro_nome}! Tudo bem? ❤️\n\nEstou organizando os detalhes do meu Open House e queria saber se você vai conseguir vir. Sem pressão, tá? É só pra eu conseguir me planejar direitinho.\n\nVocê consegue me avisar por aqui?\n👉 {link_rsvp}\n\nObrigada!',
-    },
-    event_details: {
-      title: 'Detalhes do encontro',
-      defaultText:
-        'Oi, {primeiro_nome}! Nosso encontro está chegando 🏡❤️\n\nMeu Open House vai ser no dia {data}, a partir das {horario}.\n\n📍 {local}\n{endereco}\nComo chegar: {maps}\n\nSe tiver qualquer dúvida, me chama. Até lá!',
-    },
-    gift_registry: {
-      title: 'Lista da casa nova',
-      defaultText:
-        'Oi, {primeiro_nome}! ❤️\n\nAlgumas pessoas me perguntaram o que está faltando no meu cantinho, então deixei uma listinha com algumas ideias. Mas fica à vontade, viu? Sem pressão nenhuma — o que mais quero é comemorar com você!\n👉 {link_presentes}',
-    },
-    gift_thanks: {
-      title: 'Obrigada pelo carinho',
-      defaultText:
-        'Oi, {primeiro_nome}! ❤️\n\nVi que você escolheu "{presente}" pra minha casa nova. Muito obrigada pelo carinho e por fazer parte dessa conquista! Vou lembrar de você sempre que usar.\n\nEspero te dar um abraço no dia {data}!',
-    },
-    custom: {
-      title: 'Mensagem livre',
-      defaultText:
-        'Oi, {primeiro_nome}!\n\nQueria te contar uma novidade: estou começando uma fase nova e vou comemorar com pessoas queridas. Dá uma olhada por aqui: {link}\n\nUm beijo,\n{anfitriã}',
-    },
   };
 
   const [selectedTemplate, setSelectedTemplate] = useState<TemplateType>('rsvp_invite');
-  const [templateText, setTemplateText] = useState<string>(defaultTemplates.rsvp_invite.defaultText);
+  const [templateText, setTemplateText] = useState<string>(TEMPLATES_CONFIG.rsvp_invite.defaultText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleSelectTemplate = (type: TemplateType) => {
     setSelectedTemplate(type);
-    setTemplateText(defaultTemplates[type].defaultText);
+    setTemplateText(TEMPLATES_CONFIG[type].defaultText);
+  };
+
+  const handleClearCurrentTemplateHistory = () => {
+    const title = TEMPLATES_CONFIG[selectedTemplate].title;
+    if (confirm(`Deseja zerar as marcações de envio do modelo "${title}"?`)) {
+      saveSentMap({
+        ...sentMap,
+        [selectedTemplate]: [],
+      });
+      showFeedback(`Marcações do modelo "${title}" foram zeradas.`);
+    }
+  };
+
+  const handleClearAllHistory = () => {
+    if (confirm('Deseja zerar o histórico de mensagens enviadas de TODOS os modelos?')) {
+      saveSentMap({
+        rsvp_invite: [],
+        rsvp_reminder: [],
+        event_details: [],
+        gift_registry: [],
+        gift_thanks: [],
+        custom: [],
+      });
+      showFeedback('Histórico de todos os modelos foi zerado.');
+    }
   };
 
   // 3. Filters
@@ -147,7 +233,6 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   // Base public site URL
   const publicBaseUrl = useMemo(() => {
     if (typeof window !== 'undefined' && window.location.origin) {
-      // If running on localhost or ais-dev, still provide fallback or current origin
       return window.location.origin;
     }
     return 'https://open-house-bday-alyne-nobre.vercel.app';
@@ -168,8 +253,6 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       return settings.eventDate;
     }
   }, [settings.eventDate]);
-
-
 
   // Generator of personalized message for a guest
   const generateMessageForGuest = (guest: Guest): string => {
@@ -220,6 +303,11 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     }, 50);
   };
 
+  // Sent IDs for currently selected template
+  const currentTemplateSentIds = useMemo(() => {
+    return sentMap[selectedTemplate] || [];
+  }, [sentMap, selectedTemplate]);
+
   // Filtered guest list
   const filteredGuests = useMemo(() => {
     return guests.filter((g) => {
@@ -245,10 +333,10 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       if (phoneFilter === 'has_phone' && !hasValidPhone) return false;
       if (phoneFilter === 'no_phone' && hasValidPhone) return false;
 
-      // 4. Send status filter
-      const isSent = sentIds.includes(g.id);
-      if (sendStatusFilter === 'sent' && !isSent) return false;
-      if (sendStatusFilter === 'not_sent' && isSent) return false;
+      // 4. Send status filter (relative to selected template)
+      const isSentForCurrent = currentTemplateSentIds.includes(g.id);
+      if (sendStatusFilter === 'sent' && !isSentForCurrent) return false;
+      if (sendStatusFilter === 'not_sent' && isSentForCurrent) return false;
 
       return true;
     });
@@ -258,19 +346,36 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     statusFilter,
     phoneFilter,
     sendStatusFilter,
-    sentIds,
+    currentTemplateSentIds,
     reservations,
   ]);
 
-  // Overall counts
+  // Overall counts for the active template
   const totalGuests = guests.length;
-  const validPhoneGuests = guests.filter((g) => isValidWhatsappNumber(g.whatsapp)).length;
-  const sentCount = guests.filter((g) => sentIds.includes(g.id)).length;
-  const pendingPhoneGuests = guests.filter(
-    (g) => isValidWhatsappNumber(g.whatsapp) && !sentIds.includes(g.id)
-  );
 
-  // Next guest in line to message
+  // For 'gift_thanks', only guests who reserved gifts are eligible targets
+  const eligibleGuestsForCurrentTemplate = useMemo(() => {
+    return guests.filter((g) => {
+      if (!isValidWhatsappNumber(g.whatsapp)) return false;
+      if (selectedTemplate === 'gift_thanks') {
+        return getReservationsForGuest(g, reservations).length > 0;
+      }
+      return true;
+    });
+  }, [guests, reservations, selectedTemplate]);
+
+  const validPhoneGuests = eligibleGuestsForCurrentTemplate.length;
+  const sentCount = eligibleGuestsForCurrentTemplate.filter((g) =>
+    currentTemplateSentIds.includes(g.id)
+  ).length;
+
+  const pendingPhoneGuests = useMemo(() => {
+    return eligibleGuestsForCurrentTemplate.filter(
+      (g) => !currentTemplateSentIds.includes(g.id)
+    );
+  }, [eligibleGuestsForCurrentTemplate, currentTemplateSentIds]);
+
+  // Next guest in line to message with current template
   const nextPendingGuest = pendingPhoneGuests[0] || null;
 
   // Actions
@@ -279,10 +384,8 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     const url = formatWhatsappUrl(guest.whatsapp || '', text);
     if (!url) return;
 
-    // Auto mark as sent
-    if (!sentIds.includes(guest.id)) {
-      saveSentIds([...sentIds, guest.id]);
-    }
+    // Auto mark as sent for the current template
+    markGuestSentForTemplate(guest.id, selectedTemplate);
 
     window.open(url, '_blank', 'noopener,noreferrer');
   };
@@ -404,33 +507,49 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       <div className="bg-white border border-[#EADBCE] rounded-2xl p-4 sm:p-5 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div>
-            <span className="text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider block">
-              Progresso dos Envios nesta Sessão
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-[#7D756C] uppercase tracking-wider block">
+                Progresso: {TEMPLATES_CONFIG[selectedTemplate].title}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#FAF3F0] text-[#C86D51] font-semibold border border-[#EADBCE]">
+                Modelo Ativo
+              </span>
+            </div>
             <div className="flex items-baseline gap-2 mt-0.5">
               <span className="font-serif text-2xl font-bold text-[#2D2A26] tabular-nums">
                 {sentCount}
               </span>
               <span className="text-xs text-[#7D756C]">
-                de {validPhoneGuests} contatos com WhatsApp chamados ({validPhoneGuests > 0 ? Math.round((sentCount / validPhoneGuests) * 100) : 0}%)
+                de {validPhoneGuests} {selectedTemplate === 'gift_thanks' ? 'com presente e WhatsApp' : 'com WhatsApp'} chamados ({validPhoneGuests > 0 ? Math.round((sentCount / validPhoneGuests) * 100) : 0}%)
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-3 text-xs flex-wrap">
             <span className="text-[#7D756C]">
-              {totalGuests - validPhoneGuests} convidados sem WhatsApp válido
+              {totalGuests - guests.filter((g) => isValidWhatsappNumber(g.whatsapp)).length} convidados sem WhatsApp válido
             </span>
-            {sentCount > 0 && (
-              <button
-                onClick={handleClearSentHistory}
-                className="text-[11px] font-semibold text-[#C86D51] hover:underline flex items-center gap-1 cursor-pointer"
-                title="Zerar marcações de mensagens enviadas"
-              >
-                <RotateCcw className="w-3 h-3" />
-                Resetar progresso
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {sentCount > 0 && (
+                <button
+                  onClick={handleClearCurrentTemplateHistory}
+                  className="text-[11px] font-semibold text-[#C86D51] hover:underline flex items-center gap-1 cursor-pointer"
+                  title={`Zerar marcações do modelo "${TEMPLATES_CONFIG[selectedTemplate].title}"`}
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Resetar modelo atual
+                </button>
+              )}
+              {Object.values(sentMap).some((list) => list.length > 0) && (
+                <button
+                  onClick={handleClearAllHistory}
+                  className="text-[10px] font-medium text-[#7D756C] hover:text-[#2D2A26] hover:underline flex items-center gap-1 cursor-pointer"
+                  title="Zerar marcações de envio de todos os modelos"
+                >
+                  Resetar todos
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -454,21 +573,29 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
               1. Escolha o Modelo da Mensagem
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {(Object.keys(defaultTemplates) as TemplateType[]).map((tKey) => {
-                const tmpl = defaultTemplates[tKey];
+              {TEMPLATE_KEYS.map((tKey) => {
+                const tmpl = TEMPLATES_CONFIG[tKey];
                 const isSelected = selectedTemplate === tKey;
+                const countForT = (sentMap[tKey] || []).length;
                 return (
                   <button
                     key={tKey}
                     type="button"
                     onClick={() => handleSelectTemplate(tKey)}
-                    className={`p-2.5 rounded-xl border text-left text-xs font-medium transition-colors cursor-pointer ${
+                    className={`p-2.5 rounded-xl border text-left text-xs font-medium transition-colors cursor-pointer relative ${
                       isSelected
-                        ? 'border-[#C86D51] bg-[#FAF3F0] text-[#2D2A26] font-semibold'
+                        ? 'border-[#C86D51] bg-[#FAF3F0] text-[#2D2A26] font-semibold ring-1 ring-[#C86D51]'
                         : 'border-[#EADBCE] bg-[#FAF8F5] text-[#68625B] hover:bg-[#F4EFEB] hover:text-[#2D2A26]'
                     }`}
                   >
-                    <div className="truncate">{tmpl.title}</div>
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="truncate">{tmpl.title}</span>
+                      {countForT > 0 && (
+                        <span className="shrink-0 text-[10px] px-1.5 py-0.2 rounded-full bg-emerald-100 text-emerald-800 font-mono font-semibold" title={`${countForT} já chamados`}>
+                          {countForT}
+                        </span>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -482,7 +609,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
               </label>
               <button
                 type="button"
-                onClick={() => setTemplateText(defaultTemplates[selectedTemplate].defaultText)}
+                onClick={() => setTemplateText(TEMPLATES_CONFIG[selectedTemplate].defaultText)}
                 className="text-[10px] font-semibold text-[#C86D51] hover:underline cursor-pointer"
               >
                 Restaurar padrão
@@ -697,7 +824,13 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
 
             {/* Sent Status */}
             <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-[#EADBCE]">
-              <span className="text-[10px] font-semibold text-[#7D756C] px-2 uppercase">Envio:</span>
+              <span className="text-[10px] font-semibold text-[#7D756C] px-2 uppercase flex items-center gap-1">
+                <span>Envio</span>
+                <span className="text-[9px] font-mono font-medium text-[#C86D51] bg-[#FAF3F0] px-1.5 py-0.5 rounded border border-[#EADBCE]">
+                  {TEMPLATES_CONFIG[selectedTemplate].shortLabel}
+                </span>
+                :
+              </span>
               <button
                 onClick={() => setSendStatusFilter('all')}
                 className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
@@ -741,191 +874,238 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
               <p>Tente ajustar a busca ou os filtros acima.</p>
             </div>
           ) : (
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-[#EADBCE] bg-[#FAF8F5] text-[11px] font-semibold uppercase tracking-wider text-[#7D756C]">
-                  <th className="py-3 px-4 w-12 text-center">Status</th>
-                  <th className="py-3 px-4">Convidado</th>
-                  <th className="py-3 px-4">WhatsApp</th>
-                  <th className="py-3 px-4">RSVP</th>
-                  <th className="py-3 px-4">Presente(s)</th>
-                  <th className="py-3 px-4 text-right">Ações de Envio</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#EADBCE]/60">
-                {filteredGuests.map((g) => {
-                  const hasValidPhone = isValidWhatsappNumber(g.whatsapp);
-                  const isSent = sentIds.includes(g.id);
-                  const reserved = getReservationsForGuest(g, reservations);
+            <>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-[#EADBCE] bg-[#FAF8F5] text-[11px] font-semibold uppercase tracking-wider text-[#7D756C]">
+                    <th className="py-3 px-3 text-center min-w-[210px]">Status dos Modelos</th>
+                    <th className="py-3 px-4">Convidado</th>
+                    <th className="py-3 px-4">WhatsApp</th>
+                    <th className="py-3 px-4">RSVP</th>
+                    <th className="py-3 px-4">Presente(s)</th>
+                    <th className="py-3 px-4 text-right">Ações de Envio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EADBCE]/60">
+                  {filteredGuests.map((g) => {
+                    const hasValidPhone = isValidWhatsappNumber(g.whatsapp);
+                    const isSentForCurrent = isGuestSentForTemplate(g.id, selectedTemplate);
+                    const reserved = getReservationsForGuest(g, reservations);
 
-                  return (
-                    <tr
-                      key={g.id}
-                      className={`hover:bg-[#FAF8F5]/80 transition-colors ${
-                        isSent ? 'bg-emerald-50/20' : ''
-                      }`}
-                    >
-                      {/* Checkbox toggle sent */}
-                      <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => toggleSentStatus(g.id)}
-                          className={`w-5 h-5 rounded-md border flex items-center justify-center transition-colors cursor-pointer mx-auto ${
-                            isSent
-                              ? 'bg-emerald-600 border-emerald-600 text-white'
-                              : 'border-[#DDD6CE] hover:border-[#C86D51] bg-white text-transparent'
-                          }`}
-                          title={isSent ? 'Marcar como não enviado' : 'Marcar como já enviado'}
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
-
-                      {/* Guest Name & Notes */}
-                      <td className="py-3 px-4">
-                        <div className="font-semibold text-[#2D2A26]">{g.name}</div>
-                        {g.notes && (
-                          <div className="text-[11px] text-[#7D756C] line-clamp-1 italic">
-                            "{g.notes}"
-                          </div>
-                        )}
-                        {g.companions && g.companions.length > 0 && (
-                          <div className="text-[10px] text-[#A59E95]">
-                            +{g.companions.join(', ')}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* WhatsApp phone & Quick Edit */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        {hasValidPhone ? (
-                          <div className="flex items-center gap-1.5 font-mono text-xs text-[#2D2A26]">
-                            <span>{formatPhoneDisplay(g.whatsapp || '')}</span>
-                            <button
-                              onClick={() => {
-                                setEditingGuestPhone(g);
-                                setPhoneInputValue(g.whatsapp || '');
-                              }}
-                              className="text-[#A59E95] hover:text-[#C86D51] p-0.5 cursor-pointer"
-                              title="Editar número"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
-                              <PhoneOff className="w-3 h-3 text-amber-600" />
-                              Sem WhatsApp
-                            </span>
-                            <button
-                              onClick={() => {
-                                setEditingGuestPhone(g);
-                                setPhoneInputValue('');
-                              }}
-                              className="text-[11px] font-semibold text-[#C86D51] hover:underline cursor-pointer"
-                            >
-                              + Adicionar
-                            </button>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* RSVP status badge */}
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        {g.status === 'confirmed' && (
-                          <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-medium">
-                            Confirmado ({g.attendees}p)
-                          </span>
-                        )}
-                        {g.status === 'pending' && (
-                          <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-medium">
-                            Pendente
-                          </span>
-                        )}
-                        {g.status === 'declined' && (
-                          <span className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md font-medium">
-                            Não vai
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Reserved gifts */}
-                      <td className="py-3 px-4">
-                        {reserved.length > 0 ? (
-                          <div className="flex flex-col gap-1 max-w-[240px]">
-                            {reserved.map((r) => (
-                              <div
-                                key={r.id}
-                                className="text-[11px] flex items-center gap-1.5 flex-wrap"
-                                title={`${r.giftName}${r.quantity > 1 ? ` (${r.quantity} cotas)` : ''}`}
-                              >
-                                <span className="font-medium text-[#2D2A26] flex items-center gap-1 truncate max-w-[170px]">
-                                  <GiftIcon className="w-3 h-3 text-[#C86D51] shrink-0" />
-                                  {r.giftName}
-                                </span>
-                                {r.quantity > 1 && (
-                                  <span className="text-[#A59E95] text-[10px]">({r.quantity}x)</span>
-                                )}
-                                <span
-                                  className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
-                                    r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    return (
+                      <tr
+                        key={g.id}
+                        className={`hover:bg-[#FAF8F5]/80 transition-colors ${
+                          isSentForCurrent ? 'bg-emerald-50/20' : ''
+                        }`}
+                      >
+                        {/* Status per template chips */}
+                        <td className="py-3 px-3 text-center">
+                          <div className="flex items-center justify-center gap-1 flex-wrap max-w-[220px] mx-auto">
+                            {TEMPLATE_KEYS.map((tKey) => {
+                              const isSent = isGuestSentForTemplate(g.id, tKey);
+                              const isCurrent = selectedTemplate === tKey;
+                              const cfg = TEMPLATES_CONFIG[tKey];
+                              return (
+                                <button
+                                  key={tKey}
+                                  type="button"
+                                  onClick={() => toggleSentForTemplate(g.id, tKey)}
+                                  className={`h-5 px-1.5 rounded-md text-[10px] font-medium flex items-center gap-0.5 transition-all cursor-pointer select-none ${
+                                    isCurrent
+                                      ? 'ring-2 ring-[#C86D51] ring-offset-1 font-semibold'
+                                      : ''
+                                  } ${
+                                    isSent
+                                      ? 'bg-emerald-600 text-white shadow-2xs hover:bg-emerald-700'
+                                      : 'bg-[#F4EFEB] text-[#7D756C] hover:bg-[#EADBCE] hover:text-[#2D2A26]'
                                   }`}
+                                  title={`${cfg.title}: ${
+                                    isSent ? 'Já enviado (clique para desmarcar)' : 'Não enviado (clique para marcar)'
+                                  }${isCurrent ? ' • [Modelo Ativo]' : ''}`}
                                 >
-                                  {r.paid ? 'Pago' : 'Pendente'}
-                                </span>
-                              </div>
-                            ))}
+                                  {isSent ? <Check className="w-2.5 h-2.5 stroke-[3]" /> : null}
+                                  <span>{cfg.shortLabel}</span>
+                                </button>
+                              );
+                            })}
                           </div>
-                        ) : (
-                          <span className="text-[11px] text-[#A59E95]">—</span>
-                        )}
-                      </td>
+                        </td>
 
-                      {/* Action buttons */}
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyMessage(g)}
-                            className="h-8 px-2.5 rounded-lg border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#68625B] hover:text-[#2D2A26] flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Copiar texto da mensagem deste convidado"
-                          >
-                            <Copy className="w-3 h-3" />
-                            <span className="hidden sm:inline">Copiar</span>
-                          </button>
-
-                          {hasValidPhone ? (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenWhatsapp(g)}
-                              className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
-                                isSent
-                                  ? 'bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100'
-                                  : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                              }`}
-                              title={`Abrir WhatsApp para ${g.name}`}
-                            >
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>{isSent ? 'Chamar Novamente' : 'Abrir WhatsApp'}</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              disabled
-                              className="h-8 px-3 rounded-lg text-xs font-semibold bg-[#F4EFEB] text-[#A59E95] border border-[#DDD6CE] cursor-not-allowed"
-                              title="Cadastre um telefone válido primeiro"
-                            >
-                              Sem Número
-                            </button>
+                        {/* Guest Name & Notes */}
+                        <td className="py-3 px-4">
+                          <div className="font-semibold text-[#2D2A26]">{g.name}</div>
+                          {g.notes && (
+                            <div className="text-[11px] text-[#7D756C] line-clamp-1 italic">
+                              "{g.notes}"
+                            </div>
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                          {g.companions && g.companions.length > 0 && (
+                            <div className="text-[10px] text-[#A59E95]">
+                              +{g.companions.join(', ')}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* WhatsApp phone & Quick Edit */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {hasValidPhone ? (
+                            <div className="flex items-center gap-1.5 font-mono text-xs text-[#2D2A26]">
+                              <span>{formatPhoneDisplay(g.whatsapp || '')}</span>
+                              <button
+                                onClick={() => {
+                                  setEditingGuestPhone(g);
+                                  setPhoneInputValue(g.whatsapp || '');
+                                }}
+                                className="text-[#A59E95] hover:text-[#C86D51] p-0.5 cursor-pointer"
+                                title="Editar número"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md flex items-center gap-1">
+                                <PhoneOff className="w-3 h-3 text-amber-600" />
+                                Sem WhatsApp
+                              </span>
+                              <button
+                                onClick={() => {
+                                  setEditingGuestPhone(g);
+                                  setPhoneInputValue('');
+                                }}
+                                className="text-[11px] font-semibold text-[#C86D51] hover:underline cursor-pointer"
+                              >
+                                + Adicionar
+                              </button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* RSVP status badge */}
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          {g.status === 'confirmed' && (
+                            <span className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md font-medium">
+                              Confirmado ({g.attendees}p)
+                            </span>
+                          )}
+                          {g.status === 'pending' && (
+                            <span className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md font-medium">
+                              Pendente
+                            </span>
+                          )}
+                          {g.status === 'declined' && (
+                            <span className="text-[11px] text-rose-800 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-md font-medium">
+                              Não vai
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Reserved gifts */}
+                        <td className="py-3 px-4">
+                          {reserved.length > 0 ? (
+                            <div className="flex flex-col gap-1 max-w-[240px]">
+                              {reserved.map((r) => (
+                                <div
+                                  key={r.id}
+                                  className="text-[11px] flex items-center gap-1.5 flex-wrap"
+                                  title={`${r.giftName}${r.quantity > 1 ? ` (${r.quantity} cotas)` : ''}`}
+                                >
+                                  <span className="font-medium text-[#2D2A26] flex items-center gap-1 truncate max-w-[170px]">
+                                    <GiftIcon className="w-3 h-3 text-[#C86D51] shrink-0" />
+                                    {r.giftName}
+                                  </span>
+                                  {r.quantity > 1 && (
+                                    <span className="text-[#A59E95] text-[10px]">({r.quantity}x)</span>
+                                  )}
+                                  <span
+                                    className={`px-1 py-0.2 rounded text-[9px] font-semibold ${
+                                      r.paid ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                    }`}
+                                  >
+                                    {r.paid ? 'Pago' : 'Pendente'}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-[11px] text-[#A59E95]">—</span>
+                          )}
+                        </td>
+
+                        {/* Action buttons */}
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyMessage(g)}
+                              className="h-8 px-2.5 rounded-lg border border-[#EADBCE] bg-white hover:bg-[#FAF8F5] text-xs font-semibold text-[#68625B] hover:text-[#2D2A26] flex items-center gap-1 transition-colors cursor-pointer"
+                              title="Copiar texto da mensagem deste convidado"
+                            >
+                              <Copy className="w-3 h-3" />
+                              <span className="hidden sm:inline">Copiar</span>
+                            </button>
+
+                            {hasValidPhone ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenWhatsapp(g)}
+                                className={`h-8 px-3 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs ${
+                                  isSentForCurrent
+                                    ? 'bg-emerald-50 border border-emerald-300 text-emerald-800 hover:bg-emerald-100'
+                                    : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                }`}
+                                title={`Abrir WhatsApp para ${g.name} com o modelo "${TEMPLATES_CONFIG[selectedTemplate].title}"`}
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>{isSentForCurrent ? 'Chamar Novamente' : 'Abrir WhatsApp'}</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                disabled
+                                className="h-8 px-3 rounded-lg text-xs font-semibold bg-[#F4EFEB] text-[#A59E95] border border-[#DDD6CE] cursor-not-allowed"
+                                title="Cadastre um telefone válido primeiro"
+                              >
+                                Sem Número
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              {/* Status Chips Legend & Helper */}
+              <div className="px-4 py-2.5 bg-[#FAF8F5] border-t border-[#EADBCE] flex flex-wrap items-center justify-between gap-3 text-[11px] text-[#7D756C]">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="font-semibold text-[#2D2A26]">Legenda dos chips de status:</span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-4 px-1 rounded bg-emerald-600 text-white text-[9px] font-bold inline-flex items-center">
+                      <Check className="w-2 h-2 mr-0.5 stroke-[3]" /> Enviado
+                    </span>
+                    <span>= Mensagem enviada</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-4 px-1 rounded bg-[#F4EFEB] text-[#7D756C] text-[9px] font-medium inline-flex items-center">
+                      Pendente
+                    </span>
+                    <span>= Não enviado</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="h-4 px-1 rounded bg-[#FAF3F0] text-[#2D2A26] ring-2 ring-[#C86D51] text-[9px] font-bold inline-flex items-center">
+                      Ativo
+                    </span>
+                    <span>= Modelo selecionado para envio</span>
+                  </span>
+                </div>
+                <span className="text-[10px] text-[#A59E95] italic">
+                  Dica: Clique diretamente em qualquer chip para marcar ou desmarcar o status.
+                </span>
+              </div>
+            </>
           )}
         </div>
       </div>

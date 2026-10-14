@@ -59,6 +59,7 @@ import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
 import { normalizeMemeUrl, getMemeKind } from '../../utils/memeMedia';
 import { WhatsAppTab } from './WhatsAppTab';
+import { GalleryTab } from './GalleryTab';
 
 interface AdminDashboardProps {
   gifts: Gift[];
@@ -72,7 +73,7 @@ interface AdminDashboardProps {
   onRetrySubscriptions?: () => void;
 }
 
-type AdminTab = 'overview' | 'gifts' | 'whoGaveWhat' | 'linkGifts' | 'guests' | 'whatsapp' | 'settings';
+type AdminTab = 'overview' | 'gifts' | 'whoGaveWhat' | 'linkGifts' | 'guests' | 'whatsapp' | 'gallery' | 'settings';
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   gifts,
@@ -829,6 +830,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           >
             <MessageSquare className="w-3.5 h-3.5" />
             WhatsApp 💬
+          </button>
+
+          <button
+            onClick={() => setActiveTab('gallery')}
+            className={`h-9 px-4 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeTab === 'gallery'
+                ? 'bg-[#C86D51] text-white shadow-xs'
+                : 'text-[#68625B] hover:text-[#2D2A26] hover:bg-[#F4EFEB]'
+            }`}
+          >
+            Galeria do Apê 📸
           </button>
 
           <button
@@ -2867,6 +2879,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             reservations={reservations}
             settings={settings}
           />
+        )}
+
+        {/* ===================== TAB: GALERIA DO APÊ ===================== */}
+        {activeTab === 'gallery' && (
+          <GalleryTab />
         )}
 
       </main>

@@ -8,9 +8,13 @@ import {
   AlertCircle,
   MessageCircle,
   Send,
+  User,
+  Users,
+  UserCheck,
+  Info,
 } from 'lucide-react';
 import { Guest, EventSettings } from '../types';
-import { createGuestRsvp } from '../services/guestService';
+import { createGuestRsvp, findGuestInRegistry } from '../services/guestService';
 import { subscribeEventStats } from '../services/eventStatsService';
 import { formatWhatsappUrl } from '../utils/phone';
 
@@ -28,7 +32,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
   const [companions, setCompanions] = useState<string[]>([]);
   const [notes, setNotes] = useState('');
 
-  // UI state
+  // UI & Guest lookup state
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<'confirmed' | 'declined' | null>(null);
   const [submittedData, setSubmittedData] = useState<{
@@ -37,6 +41,8 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
     companions: string[];
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [matchedGuest, setMatchedGuest] = useState<Guest | null>(null);
+  const [isSearchingGuest, setIsSearchingGuest] = useState(false);
 
   // Real confirmed attendees count: uses live guests list if available, falls back to eventStats
   const [confirmedPeopleCount, setConfirmedPeopleCount] = useState(0);
@@ -57,8 +63,88 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
     return confirmedPeopleCount;
   }, [guests, confirmedPeopleCount]);
 
+  // Real-time lookup of guest invitation & companion limits
+  useEffect(() => {
+    const cleanPhone = whatsapp.replace(/\D/g, '');
+    const cleanN = name.trim();
+
+    if (cleanPhone.length >= 8 || cleanN.length >= 2) {
+      let active = true;
+      setIsSearchingGuest(true);
+
+      const timer = setTimeout(async () => {
+        try {
+          const found = await findGuestInRegistry({ name: cleanN, whatsapp: cleanPhone });
+          if (!active) return;
+
+          if (found) {
+            setMatchedGuest(found);
+
+            // Enforce companion limits immediately
+            if (found.maxCompanions === 0) {
+              setAttendeesCount(1);
+              setCompanions([]);
+            } else if (attendeesCount > 1 + found.maxCompanions) {
+              setAttendeesCount(1 + found.maxCompanions);
+              setCompanions((prev) => prev.slice(0, found.maxCompanions));
+            }
+
+            // Pre-fill previous response if form hasn't been edited
+            if (found.status === 'confirmed' && (found.attendees || 0) > 0 && !notes) {
+              setStatus('confirmed');
+              const safeAtt = Math.max(1, Math.min(1 + found.maxCompanions, found.attendees || 1));
+              setAttendeesCount(safeAtt);
+              if (Array.isArray(found.companions) && found.companions.length > 0) {
+                setCompanions(found.companions.slice(0, safeAtt - 1));
+              }
+              if (found.notes) setNotes(found.notes);
+            } else if (found.status === 'declined' && !notes) {
+              setStatus('declined');
+              if (found.notes) setNotes(found.notes);
+            }
+          } else {
+            setMatchedGuest(null);
+          }
+        } catch {
+          // Ignore lookup errors
+        } finally {
+          if (active) setIsSearchingGuest(false);
+        }
+      }, 300);
+
+      return () => {
+        active = false;
+        clearTimeout(timer);
+      };
+    } else {
+      setMatchedGuest(null);
+      setIsSearchingGuest(false);
+    }
+  }, [name, whatsapp]);
+
+  const effectiveMaxCompanions = useMemo(() => {
+    if (matchedGuest && typeof matchedGuest.maxCompanions === 'number') {
+      return Math.max(0, matchedGuest.maxCompanions);
+    }
+    // Default limit for unlisted guests is 0 (can only confirm themselves, unless host adds them)
+    return 0;
+  }, [matchedGuest]);
+
+  const cleanPhoneDigits = useMemo(() => {
+    return whatsapp.replace(/\D/g, '');
+  }, [whatsapp]);
+
+  const hostPhoneLink = useMemo(() => {
+    const hostNumber = settings?.hostWhatsapp || settings?.shippingPhone || '(11) 98765-4321';
+    const guestLabel = name.trim() || 'Convidado';
+    const message = `Oi Alyne! Sou ${guestLabel} (${whatsapp || 'meu telefone'}). Gostaria de saber se é possível levar acompanhante no seu evento!`;
+    return formatWhatsappUrl(hostNumber, message);
+  }, [settings?.hostWhatsapp, settings?.shippingPhone, name, whatsapp]);
+
+  const maxAllowedAttendees = effectiveMaxCompanions === 0 ? 1 : 1 + effectiveMaxCompanions;
+
   const handleAttendeesChange = (val: number) => {
-    const safeCount = Math.max(1, Math.min(10, val));
+    const safeCount = Math.max(1, Math.min(maxAllowedAttendees, val));
     setAttendeesCount(safeCount);
 
     const needed = safeCount - 1;
@@ -92,23 +178,35 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
       return;
     }
 
-    if (status === 'confirmed' && attendeesCount > 1) {
-      const emptyCompanions = companions.slice(0, attendeesCount - 1).some((c) => !c.trim());
-      if (emptyCompanions) {
-        setErrorMessage('Por favor, informe o nome de todos os acompanhantes do seu grupo.');
+    if (status === 'confirmed') {
+      if (effectiveMaxCompanions === 0 && attendeesCount > 1) {
+        setErrorMessage('Seu convite é individual e não permite acompanhantes.');
         return;
+      }
+      if (attendeesCount > maxAllowedAttendees) {
+        setErrorMessage(`Seu convite permite no máximo ${effectiveMaxCompanions} acompanhante(s).`);
+        return;
+      }
+      if (attendeesCount > 1) {
+        const emptyCompanions = companions.slice(0, attendeesCount - 1).some((c) => !c.trim() || c.trim().length < 2);
+        if (emptyCompanions) {
+          setErrorMessage(`Por favor, informe o nome completo de todos os ${attendeesCount - 1} acompanhante(s) do seu grupo.`);
+          return;
+        }
       }
     }
 
     setSubmitting(true);
     try {
-      const filteredCompanions = status === 'confirmed' ? companions.slice(0, attendeesCount - 1) : [];
+      const filteredCompanions = (status === 'confirmed' && effectiveMaxCompanions > 0)
+        ? companions.slice(0, attendeesCount - 1)
+        : [];
 
       await createGuestRsvp({
         name: cleanName,
         whatsapp,
         status,
-        attendees: status === 'confirmed' ? attendeesCount : 0,
+        attendees: status === 'confirmed' ? Math.min(maxAllowedAttendees, attendeesCount) : 0,
         companions: filteredCompanions,
         notes: notes.trim(),
       });
@@ -125,7 +223,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
       setSubmitted(status);
       setSubmittedData({
         name: cleanName,
-        attendees: status === 'confirmed' ? attendeesCount : 0,
+        attendees: status === 'confirmed' ? Math.min(maxAllowedAttendees, attendeesCount) : 0,
         companions: filteredCompanions,
       });
     } catch (err: unknown) {
@@ -144,6 +242,7 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
     setNotes('');
     setAttendeesCount(1);
     setCompanions([]);
+    setMatchedGuest(null);
     setErrorMessage('');
   };
 
@@ -305,8 +404,108 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
                   className="w-full h-12 px-4 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-sm text-[#1B2F4E] focus:bg-white focus:border-[#CF3B25] focus:ring-2 focus:ring-[#CF3B25]/15 outline-none transition-all font-mono"
                 />
                 <span className="text-[11px] text-[#6F7F97] mt-1 block">
-                  Usado apenas para alinharmos detalhes e avisos sobre o evento.
+                  Usado para identificarmos seu convite e alinharmos avisos sobre o evento.
                 </span>
+
+                {/* Live Guest Lookup Feedback */}
+                {isSearchingGuest && (
+                  <div className="mt-2.5 flex items-center gap-2 text-xs text-[#6F7F97]">
+                    <span className="w-2 h-2 rounded-full bg-[#CF3B25] animate-ping" />
+                    <span>Localizando seu convite na lista...</span>
+                  </div>
+                )}
+
+                {/* 1) Convidado encontrado na lista */}
+                {matchedGuest && !isSearchingGuest && (
+                  <div className={`mt-3 p-4 rounded-2xl border transition-all ${
+                    matchedGuest.maxCompanions === 0
+                      ? 'bg-[#FBF4E8] border-[#E8D4B8] text-[#1B2F4E]'
+                      : 'bg-[#F0F7F1] border-emerald-200 text-emerald-950'
+                  }`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                        matchedGuest.maxCompanions === 0 ? 'bg-[#F3E3CB] text-[#CF3B25]' : 'bg-emerald-100 text-emerald-700'
+                      }`}>
+                        {matchedGuest.maxCompanions === 0 ? <User className="w-4 h-4" /> : <Users className="w-4 h-4" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-xs text-[#1B2F4E]">
+                            Olá, {matchedGuest.name}!
+                          </span>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-wider ${
+                            matchedGuest.maxCompanions === 0
+                              ? 'bg-[#F3E3CB] text-[#CF3B25]'
+                              : 'bg-emerald-200/70 text-emerald-800'
+                          }`}>
+                            {matchedGuest.maxCompanions === 0
+                              ? 'Convite Individual'
+                              : `Até ${matchedGuest.maxCompanions} ${matchedGuest.maxCompanions === 1 ? 'acompanhante (+1)' : `acompanhantes (+${matchedGuest.maxCompanions})`}`}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#4B5A72] mt-1 leading-relaxed">
+                          {matchedGuest.maxCompanions === 0
+                            ? 'Seu convite é individual e intransferível, reservado com todo carinho para você!'
+                            : `Seu convite dá direito a você e até ${matchedGuest.maxCompanions} ${matchedGuest.maxCompanions === 1 ? 'acompanhante' : 'acompanhantes'}.`}
+                        </p>
+                        {matchedGuest.status === 'confirmed' && (
+                          <div className="mt-2 text-[11px] text-emerald-700 font-medium flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Presença já confirmada anteriormente. Você pode atualizar seus dados abaixo.</span>
+                          </div>
+                        )}
+                        {matchedGuest.status === 'declined' && (
+                          <div className="mt-2 text-[11px] text-[#8C7A6B] font-medium flex items-center gap-1.5">
+                            <Info className="w-3.5 h-3.5 shrink-0" />
+                            <span>Você havia marcado ausência anteriormente. Pode alterar para comparecer abaixo!</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2) Convidado NÃO encontrado na lista da anfitriã (ex: Joana) */}
+                {!matchedGuest && !isSearchingGuest && (cleanPhoneDigits.length >= 8 && name.trim().length >= 2) && (
+                  <div className="mt-3 p-4 rounded-2xl border border-amber-200 bg-amber-50/60 text-[#1B2F4E]">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-xs text-[#1B2F4E]">
+                            Convite Individual (Apenas Você)
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase tracking-wider bg-amber-200/80 text-amber-900">
+                            1 pessoa
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#5D5043] mt-1 leading-relaxed">
+                          Seu número não está pré-cadastrado na lista de acompanhantes. Você pode confirmar sua presença normalmente para <strong>apenas você</strong>.
+                        </p>
+
+                        {/* Botão para falar com a anfitriã se quiser levar alguém */}
+                        {hostPhoneLink && (
+                          <div className="mt-2.5 pt-2 border-t border-amber-200/70">
+                            <p className="text-[11px] text-[#6F5B46] mb-1.5">
+                              Deseja levar algum acompanhante? Peça para a Alyne liberar na lista:
+                            </p>
+                            <a
+                              href={hostPhoneLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#1EBE5D] text-white text-[11px] font-medium transition-colors shadow-xs"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>Falar com a Alyne no WhatsApp</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 3. Confirmação de Presença (Sim ou Não) */}
@@ -347,56 +546,94 @@ export const RsvpSection: React.FC<RsvpSectionProps> = ({ settings, guests }) =>
                 </div>
               </div>
 
-              {/* 4. Se Confirmado: Quantidade de Pessoas e Acompanhantes */}
+              {/* 4. Se Confirmado: Regra de Acompanhantes */}
               {status === 'confirmed' && (
                 <div className="space-y-4 pt-2 border-t border-[#F7E6D0]">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#4B5A72]">
-                        Quantas pessoas no seu grupo (incluindo você)?
-                      </label>
-                      <span className="text-xs font-bold text-[#CF3B25]">
-                        {attendeesCount} {attendeesCount === 1 ? 'pessoa' : 'pessoas'}
+                  {effectiveMaxCompanions === 0 ? (
+                    /* Convite Individual — Apenas o próprio convidado */
+                    <div className="p-4 rounded-2xl bg-[#F6EBD9]/80 border border-[#E8D4B8] flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-xl bg-white border border-[#E8D4B8] flex items-center justify-center text-[#CF3B25]">
+                          <UserCheck className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-semibold text-[#1B2F4E] block">
+                            Presença: Apenas Você (1 pessoa)
+                          </span>
+                          <span className="text-[11px] text-[#6F7F97]">
+                            {matchedGuest
+                              ? `Convite individual para ${matchedGuest.name}. Sem acompanhantes adicionais.`
+                              : `Confirmação válida apenas para você (${name.trim() || 'o convidado'}).`}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-3 py-1 rounded-full bg-white border border-[#E8D4B8] text-xs font-bold text-[#CF3B25] shrink-0">
+                        1 pessoa
                       </span>
                     </div>
+                  ) : (
+                    /* Convite com Acompanhantes — Pergunta e botões limitados a 1 + maxCompanions */
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-xs font-mono font-semibold uppercase tracking-wider text-[#4B5A72]">
+                          Quantas pessoas no seu grupo (incluindo você)?
+                        </label>
+                        <span className="text-xs font-bold text-[#CF3B25]">
+                          {attendeesCount} {attendeesCount === 1 ? 'pessoa' : 'pessoas'}
+                        </span>
+                      </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      {[1, 2, 3, 4, 5, 6].map((num) => (
-                        <button
-                          key={num}
-                          type="button"
-                          onClick={() => handleAttendeesChange(num)}
-                          className={`h-10 px-4 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
-                            attendeesCount === num
-                              ? 'bg-[#CF3B25] border-[#CF3B25] text-white shadow-xs'
-                              : 'bg-[#FBF4E8] border-[#E8D4B8] text-[#4B5A72] hover:bg-white'
-                          }`}
-                        >
-                          {num === 1 ? 'Apenas Eu' : `${num} pessoas`}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                      <div className="flex flex-wrap gap-2">
+                        {Array.from({ length: 1 + effectiveMaxCompanions }, (_, i) => i + 1).map((num) => (
+                          <button
+                            key={num}
+                            type="button"
+                            onClick={() => handleAttendeesChange(num)}
+                            className={`h-10 px-4 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                              attendeesCount === num
+                                ? 'bg-[#CF3B25] border-[#CF3B25] text-white shadow-xs'
+                                : 'bg-[#FBF4E8] border-[#E8D4B8] text-[#4B5A72] hover:bg-white'
+                            }`}
+                          >
+                            {num === 1
+                              ? 'Apenas Eu'
+                              : num === 2
+                              ? 'Eu + 1 acompanhante'
+                              : `Eu + ${num - 1} acompanhantes`}
+                          </button>
+                        ))}
+                      </div>
 
-                  {/* Dynamic inputs for companions */}
-                  {attendeesCount > 1 && (
-                    <div className="space-y-3 pt-2">
-                      <label className="block text-xs font-mono font-semibold uppercase tracking-wider text-[#4B5A72]">
-                        Nome dos Acompanhantes
-                      </label>
-                      {Array.from({ length: attendeesCount - 1 }).map((_, idx) => (
-                        <div key={idx}>
-                          <input
-                            type="text"
-                            required
-                            value={companions[idx] || ''}
-                            onChange={(e) => handleCompanionNameChange(idx, e.target.value)}
-                            placeholder={`Nome completo do ${idx + 1}º acompanhante`}
-                            maxLength={80}
-                            className="w-full h-11 px-3.5 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-xs text-[#1B2F4E] focus:bg-white focus:border-[#CF3B25] outline-none transition-all"
-                          />
+                      <span className="text-[11px] text-[#6F7F97] mt-1.5 block">
+                        Seu convite permite até {effectiveMaxCompanions} {effectiveMaxCompanions === 1 ? 'acompanhante (+1)' : `acompanhantes (+${effectiveMaxCompanions})`}.
+                      </span>
+
+                      {/* Dynamic inputs for companion names */}
+                      {attendeesCount > 1 && (
+                        <div className="space-y-3 pt-4 mt-2 border-t border-[#F7E6D0]">
+                          <div className="flex items-center justify-between">
+                            <label className="block text-xs font-mono font-semibold uppercase tracking-wider text-[#4B5A72]">
+                              Nome dos Acompanhantes *
+                            </label>
+                            <span className="text-[10px] text-[#6F7F97]">
+                              Obrigatório para lista da portaria
+                            </span>
+                          </div>
+                          {Array.from({ length: attendeesCount - 1 }).map((_, idx) => (
+                            <div key={idx}>
+                              <input
+                                type="text"
+                                required
+                                value={companions[idx] || ''}
+                                onChange={(e) => handleCompanionNameChange(idx, e.target.value)}
+                                placeholder={`Nome completo do ${idx + 1}º acompanhante`}
+                                maxLength={80}
+                                className="w-full h-11 px-3.5 rounded-xl border border-[#E8D4B8] bg-[#FBF4E8] text-xs text-[#1B2F4E] focus:bg-white focus:border-[#CF3B25] outline-none transition-all"
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      )}
                     </div>
                   )}
                 </div>
