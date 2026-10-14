@@ -8,6 +8,7 @@ import {
   orderBy,
   serverTimestamp,
   getDocs,
+  getDoc,
   writeBatch,
   setDoc,
   updateDoc,
@@ -19,6 +20,7 @@ import { auth } from '../lib/firebase';
 import { GiftReservation, Guest, GuestStatus } from '../types';
 import { incrementConfirmedAttendees, syncConfirmedAttendees } from './eventStatsService';
 import { normalizePhoneId } from '../utils/phone';
+import { INITIAL_GUESTS } from '../data/defaultData';
 
 const GUESTS_COLLECTION = 'guests';
 const LOCAL_GUESTS_KEY = 'alyne_guests_cache_v2';
@@ -181,10 +183,18 @@ export function getLocalStoredGuests(): Guest[] {
     const raw = localStorage.getItem(LOCAL_GUESTS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed;
       }
     }
+    // Pre-populate with INITIAL_GUESTS so limits and guests are immediately available
+    const initialList: Guest[] = INITIAL_GUESTS.map((g, idx) => ({
+      ...g,
+      id: makeGuestId(g.whatsapp, g.name) || `guest-init-${idx}`,
+      createdAt: new Date().toISOString(),
+    }));
+    saveLocalGuests(initialList);
+    return initialList;
   } catch (e) {
     console.warn('Error reading local guests:', e);
   }
@@ -278,6 +288,72 @@ export function normalizeGuestName(name?: string): string {
     .toLowerCase();
 }
 
+export function toGuestSlug(s?: string): string {
+  return (s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+/**
+ * Searches for a registered guest in local storage, default data, and Firestore
+ */
+export async function findGuestInRegistry(params: {
+  name?: string;
+  whatsapp?: string;
+}): Promise<Guest | undefined> {
+  const { name = '', whatsapp = '' } = params;
+  const cleanName = normalizeGuestName(name);
+  const phoneKey = normalizePhoneId(whatsapp);
+
+  if (!cleanName && !phoneKey) return undefined;
+
+  // 1. Check local storage
+  const localList = getLocalStoredGuests();
+  const localMatch = findMatchingGuest(localList, name, whatsapp);
+  if (localMatch) return localMatch;
+
+  // 2. Check INITIAL_GUESTS
+  const initialGuestsList: Guest[] = INITIAL_GUESTS.map((g, idx) => ({
+    ...g,
+    id: makeGuestId(g.whatsapp, g.name) || `guest-init-${idx}`,
+  }));
+  const initialMatch = findMatchingGuest(initialGuestsList, name, whatsapp);
+  if (initialMatch) return initialMatch;
+
+  // 3. If Firebase is configured, try candidate document IDs via getDoc
+  if (isFirebaseConfigured && db) {
+    const candidateIds: string[] = [];
+    if (phoneKey) {
+      candidateIds.push(`guest-${phoneKey}`);
+    }
+    if (cleanName && phoneKey) {
+      candidateIds.push(`guest-${toGuestSlug(cleanName)}-${phoneKey}`);
+    }
+    if (cleanName) {
+      candidateIds.push(`guest-${toGuestSlug(cleanName)}-no-phone`);
+      candidateIds.push(`guest-${toGuestSlug(cleanName)}`);
+    }
+
+    for (const docId of candidateIds) {
+      try {
+        const docRef = doc(db, GUESTS_COLLECTION, docId);
+        const snap = await getDoc(docRef);
+        if (snap.exists()) {
+          return createGuestFromSnapshot(snap as any);
+        }
+      } catch (err) {
+        // Silently skip if ID doesn't exist
+      }
+    }
+  }
+
+  return undefined;
+}
+
 export function getReservationsForGuest(
   guest: Pick<Guest, 'name' | 'whatsapp'>,
   reservations: GiftReservation[]
@@ -302,7 +378,7 @@ export function getReservationsForGuest(
 
 /**
  * Open RSVP submission from public guest
- * Adheres strictly to isValidGuestCreate() in firestore.rules
+ * Adheres strictly to companion rules and isValidGuestPayload() in firestore.rules
  */
 export async function createGuestRsvp(params: {
   name: string;
@@ -316,10 +392,6 @@ export async function createGuestRsvp(params: {
 
   const cleanName = name.trim().slice(0, 80);
   const cleanWhatsapp = whatsapp.trim().slice(0, 25);
-  const cleanCompanions = companions
-    .map((c) => c.trim().slice(0, 80))
-    .filter((c) => c.length > 0)
-    .slice(0, 9);
   const cleanNotes = (notes || '').trim().slice(0, 500);
 
   if (!cleanName) {
@@ -329,10 +401,28 @@ export async function createGuestRsvp(params: {
     throw new Error('Por favor, informe seu WhatsApp para contato (mínimo 8 dígitos).');
   }
 
-  const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(10, attendees)) : 0;
-  const phoneKey = normalizePhoneId(cleanWhatsapp);
-  const guestId = makeGuestId(cleanWhatsapp, cleanName);
+  // Lookup guest to enforce their specific host-defined companion limit
+  const registeredGuest = await findGuestInRegistry({ name: cleanName, whatsapp: cleanWhatsapp });
+  // If guest is not pre-registered by host, default is 0 (can only confirm themselves)
+  const maxAllowedCompanions = registeredGuest?.maxCompanions ?? 0;
 
+  // Companion Rule enforcement:
+  // If maxAllowedCompanions === 0 (individual or not pre-registered): strictly 1 attendee, 0 companions!
+  // If maxAllowedCompanions > 0: max attendees is (1 + maxAllowedCompanions)
+  const maxAllowedAttendees = maxAllowedCompanions === 0 ? 1 : 1 + maxAllowedCompanions;
+  const finalAttendees = status === 'confirmed' ? Math.max(1, Math.min(maxAllowedAttendees, attendees)) : 0;
+  
+  const rawCompanions = companions
+    .map((c) => c.trim().slice(0, 80))
+    .filter((c) => c.length > 0)
+    .slice(0, 9);
+
+  const filteredCompanions = (status === 'confirmed' && maxAllowedCompanions > 0)
+    ? rawCompanions.slice(0, Math.max(0, finalAttendees - 1))
+    : [];
+
+  const phoneKey = normalizePhoneId(cleanWhatsapp);
+  const guestId = registeredGuest?.id || makeGuestId(cleanWhatsapp, cleanName);
   const existingLocal = findMatchingGuest(getLocalStoredGuests(), cleanName, cleanWhatsapp);
   const targetId = guestId;
 
@@ -341,8 +431,11 @@ export async function createGuestRsvp(params: {
     try {
       const firestoreGuestDoc = doc(db, GUESTS_COLLECTION, targetId);
       const payload: Record<string, unknown> = {
+        name: registeredGuest?.name || cleanName,
+        whatsapp: registeredGuest?.whatsapp || cleanWhatsapp,
+        maxCompanions: maxAllowedCompanions,
         attendees: finalAttendees,
-        companions: status === 'confirmed' ? cleanCompanions : [],
+        companions: filteredCompanions,
         status,
         ...(cleanNotes ? { notes: cleanNotes } : {}),
         confirmedAt: serverTimestamp(),
@@ -356,8 +449,6 @@ export async function createGuestRsvp(params: {
         if (!isMissingDocument) throw error;
         await setDoc(firestoreGuestDoc, {
           ...payload,
-          name: cleanName,
-          whatsapp: cleanWhatsapp,
           createdAt: serverTimestamp(),
         });
       }
@@ -382,15 +473,15 @@ export async function createGuestRsvp(params: {
   // 3. Atualizar cache local
   const guestData: Guest = {
     id: targetId,
-    name: existingLocal?.name || cleanName,
-    whatsapp: existingLocal?.whatsapp || cleanWhatsapp,
-    maxCompanions: existingLocal?.maxCompanions ?? Math.max(1, cleanCompanions.length),
+    name: registeredGuest?.name || existingLocal?.name || cleanName,
+    whatsapp: registeredGuest?.whatsapp || existingLocal?.whatsapp || cleanWhatsapp,
+    maxCompanions: maxAllowedCompanions,
     attendees: finalAttendees,
-    companions: status === 'confirmed' ? cleanCompanions : [],
+    companions: filteredCompanions,
     status,
-    notes: cleanNotes || existingLocal?.notes || '',
+    notes: cleanNotes || registeredGuest?.notes || existingLocal?.notes || '',
     confirmedAt: new Date().toISOString(),
-    createdAt: existingLocal?.createdAt || new Date().toISOString(),
+    createdAt: registeredGuest?.createdAt || existingLocal?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 

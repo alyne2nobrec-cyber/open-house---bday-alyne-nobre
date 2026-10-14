@@ -26,6 +26,7 @@ service cloud.firestore {
         && data.companions is list
         && data.companions.size() <= 9
         && data.status in ['confirmed', 'declined', 'pending']
+        && (!('maxCompanions' in data) || (data.maxCompanions is int && data.maxCompanions >= 0 && data.maxCompanions <= 10))
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
     }
 
@@ -73,6 +74,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /galleryMedia/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     match /gifts/{id} {
       allow read: if true;
       allow create, delete: if isAdmin();
@@ -85,7 +91,8 @@ service cloud.firestore {
     }
 
     match /guests/{id} {
-      allow read: if isAdmin();
+      allow get: if true;
+      allow list: if isAdmin();
       allow create: if isAdmin() || isValidGuestPayload();
       allow update: if isAdmin() || isValidGuestPayload();
       allow delete: if isAdmin();

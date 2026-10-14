@@ -105,3 +105,16 @@ export interface EventSettings {
   pixQrCodeUrl?: string;
   galleryImages: string[];
 }
+
+export interface GalleryMediaItem {
+  id: string;
+  type: 'image' | 'video';
+  url: string;
+  thumbnailUrl?: string;
+  caption?: string;
+  order: number;
+  fileName?: string;
+  fileSize?: number;
+  createdAt?: any;
+  updatedAt?: any;
+}
