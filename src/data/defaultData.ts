@@ -34,7 +34,9 @@ export const DEFAULT_SETTINGS: EventSettings = {
     kitchenDining,
     readingNook,
     alynePortrait,
-  ]
+  ],
+  cloudinaryCloudName: "",
+  cloudinaryUploadPreset: "",
 };
 
 export const INITIAL_GIFTS: Omit<Gift, 'id'>[] = [

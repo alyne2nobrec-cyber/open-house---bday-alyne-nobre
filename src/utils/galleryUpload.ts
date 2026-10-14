@@ -1,5 +1,8 @@
-import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage';
-import { storage } from '../lib/firebase';
+import {
+  uploadToCloudinary,
+  isCloudinaryConfigured,
+  getCloudinaryVideoThumbnail,
+} from './cloudinary';
 
 export interface GalleryUploadResult {
   url: string;
@@ -7,6 +10,7 @@ export interface GalleryUploadResult {
   type: 'image' | 'video';
   fileName: string;
   fileSize: number;
+  publicId?: string;
 }
 
 export interface GalleryUploadProgress {
@@ -15,8 +19,8 @@ export interface GalleryUploadProgress {
   error?: string;
 }
 
-const MAX_VIDEO_SIZE = 30 * 1024 * 1024; // 30 MB
-const MAX_GIF_SIZE = 5 * 1024 * 1024; // 5 MB
+const MAX_VIDEO_SIZE = 100 * 1024 * 1024; // 100 MB on Cloudinary
+const MAX_GIF_SIZE = 10 * 1024 * 1024; // 10 MB
 
 /**
  * Resizes an image to maximum 1600px width/height while maintaining aspect ratio and crisp details.
@@ -78,7 +82,7 @@ export async function compressGalleryImage(file: File, maxDim = 1600, quality = 
 }
 
 /**
- * Generates a thumbnail image from the first frame of a video file.
+ * Generates an optional client-side video thumbnail fallback using HTML5 Video + Canvas.
  */
 export async function generateVideoThumbnail(file: File, maxDim = 800): Promise<Blob | null> {
   return new Promise((resolve) => {
@@ -97,7 +101,7 @@ export async function generateVideoThumbnail(file: File, maxDim = 800): Promise<
     const timeout = setTimeout(() => {
       cleanup();
       resolve(null);
-    }, 8000);
+    }, 6000);
 
     video.onloadeddata = () => {
       video.currentTime = Math.min(0.5, (video.duration || 1) / 2);
@@ -140,9 +144,9 @@ export async function generateVideoThumbnail(file: File, maxDim = 800): Promise<
             resolve(blob);
           },
           'image/jpeg',
-          0.8
+          0.85
         );
-      } catch (err) {
+      } catch {
         cleanup();
         resolve(null);
       }
@@ -157,122 +161,85 @@ export async function generateVideoThumbnail(file: File, maxDim = 800): Promise<
 }
 
 /**
- * Uploads a photo or video to Firebase Storage in the gallery/ folder with live progress tracking.
+ * Uploads a photo or video to Cloudinary with live progress tracking and automatic thumbnail generation.
  */
 export async function uploadGalleryMediaFile(
   file: File,
-  onProgress?: (progress: GalleryUploadProgress) => void
+  onProgress?: (progress: GalleryUploadProgress) => void,
+  fallbackSettings?: { cloudinaryCloudName?: string; cloudinaryUploadPreset?: string }
 ): Promise<GalleryUploadResult> {
-  if (!storage) {
-    throw new Error('Firebase Storage não está configurado neste ambiente.');
+  if (!isCloudinaryConfigured(fallbackSettings)) {
+    throw new Error(
+      'Cloudinary não configurado. Clique no botão "Configurar Cloudinary" acima para informar o Cloud Name e o Upload Preset (é 100% gratuito!).'
+    );
   }
 
-  const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi)$/i.test(file.name);
+  const isVideo = file.type.startsWith('video/') || /\.(mp4|mov|webm|m4v|avi|mkv)$/i.test(file.name);
   const isGif = file.type === 'image/gif' || /\.gif$/i.test(file.name);
 
   // 1. Validations
   if (isVideo) {
     if (file.size > MAX_VIDEO_SIZE) {
-      throw new Error(`Vídeo excede o limite de 30 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB). Reduza o vídeo antes de enviar.`);
+      throw new Error(
+        `Vídeo excede o limite de 100 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB). Reduza o vídeo antes de enviar.`
+      );
     }
   } else if (isGif) {
     if (file.size > MAX_GIF_SIZE) {
-      throw new Error(`GIF excede o limite de 5 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
+      throw new Error(`GIF excede o limite de 10 MB (${(file.size / (1024 * 1024)).toFixed(1)} MB).`);
     }
   }
 
   let uploadBlob: Blob | File = file;
-  let mimeType = file.type || (isVideo ? 'video/mp4' : 'image/jpeg');
 
-  // 2. Image compression (if not GIF or Video)
+  // 2. Pre-process image compression if not video/gif
   if (!isVideo && !isGif) {
     onProgress?.({ percent: 10, status: 'compressing' });
     try {
       uploadBlob = await compressGalleryImage(file, 1600, 0.85);
-      mimeType = 'image/jpeg';
     } catch {
       uploadBlob = file;
     }
   }
 
-  // 3. Generate video thumbnail if video
-  let thumbnailBlob: Blob | null = null;
-  if (isVideo) {
-    onProgress?.({ percent: 20, status: 'thumbnail' });
-    try {
-      thumbnailBlob = await generateVideoThumbnail(file, 800);
-    } catch (err) {
-      console.warn('Could not generate video thumbnail:', err);
-    }
-  }
+  // 3. Upload to Cloudinary with real progress tracking
+  onProgress?.({ percent: 15, status: 'uploading' });
 
-  // 4. Upload main media file
-  onProgress?.({ percent: 25, status: 'uploading' });
   const cleanName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-  const mainFilename = `gallery/${Date.now()}_${cleanName}`;
-  const mainRef = ref(storage, mainFilename);
+  const customFileName = `${Date.now()}_${cleanName}`;
 
-  const uploadTask = uploadBytesResumable(mainRef, uploadBlob, {
-    contentType: mimeType,
-  });
-
-  const mainUrl = await new Promise<string>((resolve, reject) => {
-    uploadTask.on(
-      'state_changed',
-      (snapshot) => {
-        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 70; // 25% to 95%
-        onProgress?.({ percent: Math.round(25 + progress), status: 'uploading' });
+  try {
+    const result = await uploadToCloudinary(uploadBlob, {
+      folder: 'chadecasa/gallery',
+      resourceType: isVideo ? 'video' : 'image',
+      customFileName,
+      fallbackSettings,
+      onProgress: (percent) => {
+        // Map 0..100 to 15..95%
+        const mapped = Math.round(15 + (percent * 0.8));
+        onProgress?.({ percent: mapped, status: 'uploading' });
       },
-      (error) => {
-        let msg = error.message;
-        if (error.code === 'storage/unauthorized') {
-          msg = 'Permissão negada no Firebase Storage. Verifique se você está conectada como anfitriã e se as storage.rules foram publicadas.';
-        }
-        reject(new Error(msg));
-      },
-      async () => {
-        try {
-          const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
-          resolve(downloadUrl);
-        } catch (err) {
-          reject(err);
-        }
-      }
-    );
-  });
+    });
 
-  // 5. Upload thumbnail if available
-  let thumbnailUrl: string | undefined;
-  if (thumbnailBlob) {
-    try {
-      const thumbFilename = `gallery/thumbnails/${Date.now()}_thumb_${cleanName.replace(/\.[^.]+$/, '')}.jpg`;
-      const thumbRef = ref(storage, thumbFilename);
-      const thumbTask = uploadBytesResumable(thumbRef, thumbnailBlob, {
-        contentType: 'image/jpeg',
-      });
-      thumbnailUrl = await new Promise<string>((resolve, reject) => {
-        thumbTask.on(
-          'state_changed',
-          null,
-          (err) => reject(err),
-          async () => {
-            const url = await getDownloadURL(thumbTask.snapshot.ref);
-            resolve(url);
-          }
-        );
-      });
-    } catch (err) {
-      console.warn('Could not upload video thumbnail, will use video URL as fallback:', err);
+    onProgress?.({ percent: 95, status: 'thumbnail' });
+
+    let finalThumbnail = result.thumbnailUrl;
+    if (isVideo && !finalThumbnail) {
+      finalThumbnail = getCloudinaryVideoThumbnail(result.secureUrl, { width: 800 });
     }
+
+    onProgress?.({ percent: 100, status: 'done' });
+
+    return {
+      url: result.secureUrl,
+      thumbnailUrl: finalThumbnail,
+      type: isVideo ? 'video' : 'image',
+      fileName: file.name,
+      fileSize: file.size,
+      publicId: result.publicId,
+    };
+  } catch (err: any) {
+    onProgress?.({ percent: 0, status: 'error', error: err.message });
+    throw err;
   }
-
-  onProgress?.({ percent: 100, status: 'done' });
-
-  return {
-    url: mainUrl,
-    thumbnailUrl,
-    type: isVideo ? 'video' : 'image',
-    fileName: file.name,
-    fileSize: file.size,
-  };
 }

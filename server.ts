@@ -1,10 +1,37 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const GALLERY_FILE = path.resolve(__dirname, 'data/galleryMedia.json');
+
+function readGalleryFromFile(): any[] {
+  try {
+    if (!fs.existsSync(GALLERY_FILE)) return [];
+    const raw = fs.readFileSync(GALLERY_FILE, 'utf-8');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('Error reading gallery file:', err);
+    return [];
+  }
+}
+
+function writeGalleryToFile(items: any[]): void {
+  try {
+    const dir = path.dirname(GALLERY_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(GALLERY_FILE, JSON.stringify(items, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('Error writing gallery file:', err);
+  }
+}
 
 function isPrivateOrLocalHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
@@ -182,7 +209,102 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+  // Cloudinary public config check
+  app.get('/api/cloudinary/config', (_req, res) => {
+    return res.json({
+      cloudName: process.env.VITE_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME || '',
+      uploadPreset: process.env.VITE_CLOUDINARY_UPLOAD_PRESET || process.env.CLOUDINARY_UPLOAD_PRESET || '',
+      configured: Boolean(
+        (process.env.VITE_CLOUDINARY_CLOUD_NAME || process.env.CLOUDINARY_CLOUD_NAME) &&
+        (process.env.VITE_CLOUDINARY_UPLOAD_PRESET || process.env.CLOUDINARY_UPLOAD_PRESET)
+      ),
+    });
+  });
+
+  // Gallery media endpoints (Cloudinary-hosted files, server-persisted metadata)
+  app.get('/api/gallery', (_req, res) => {
+    const items = readGalleryFromFile();
+    items.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    return res.json(items);
+  });
+
+  app.post('/api/gallery', (req, res) => {
+    const { type, url, thumbnailUrl, caption, order, fileName, fileSize, publicId } = req.body;
+    if (!url) {
+      return res.status(400).json({ error: 'URL do arquivo é obrigatória.' });
+    }
+
+    const items = readGalleryFromFile();
+    const newItem = {
+      id: `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      type: type === 'video' ? 'video' : 'image',
+      url,
+      thumbnailUrl: thumbnailUrl || null,
+      caption: caption || '',
+      order: typeof order === 'number' ? order : items.length,
+      fileName: fileName || null,
+      fileSize: fileSize || null,
+      publicId: publicId || null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    items.push(newItem);
+    writeGalleryToFile(items);
+    return res.status(201).json(newItem);
+  });
+
+  app.put('/api/gallery/reorder', (req, res) => {
+    const { items: newOrderItems } = req.body;
+    if (!Array.isArray(newOrderItems)) {
+      return res.status(400).json({ error: 'Array "items" é obrigatório.' });
+    }
+
+    const currentItems = readGalleryFromFile();
+    const itemMap = new Map(currentItems.map((it) => [it.id, it]));
+
+    const reordered = newOrderItems.map((incoming, idx) => {
+      const existing = itemMap.get(incoming.id) || incoming;
+      return {
+        ...existing,
+        order: idx,
+        updatedAt: new Date().toISOString(),
+      };
+    });
+
+    writeGalleryToFile(reordered);
+    return res.json({ success: true, items: reordered });
+  });
+
+  app.put('/api/gallery/:id', (req, res) => {
+    const { id } = req.params;
+    const { caption, order, thumbnailUrl } = req.body;
+
+    const items = readGalleryFromFile();
+    const idx = items.findIndex((it) => it.id === id);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Item não encontrado na galeria.' });
+    }
+
+    if (typeof caption === 'string') items[idx].caption = caption;
+    if (typeof order === 'number') items[idx].order = order;
+    if (typeof thumbnailUrl === 'string') items[idx].thumbnailUrl = thumbnailUrl;
+    items[idx].updatedAt = new Date().toISOString();
+
+    writeGalleryToFile(items);
+    return res.json(items[idx]);
+  });
+
+  app.delete('/api/gallery/:id', (req, res) => {
+    const { id } = req.params;
+    const items = readGalleryFromFile();
+    const filtered = items.filter((it) => it.id !== id);
+    writeGalleryToFile(filtered);
+    return res.json({ success: true });
+  });
 
   // API endpoint for product scraping
   app.get('/api/scrape', async (req, res) => {

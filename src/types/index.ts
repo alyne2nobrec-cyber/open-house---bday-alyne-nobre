@@ -104,6 +104,8 @@ export interface EventSettings {
   pixCopiaECola?: string;
   pixQrCodeUrl?: string;
   galleryImages: string[];
+  cloudinaryCloudName?: string;
+  cloudinaryUploadPreset?: string;
 }
 
 export interface GalleryMediaItem {
@@ -115,6 +117,8 @@ export interface GalleryMediaItem {
   order: number;
   fileName?: string;
   fileSize?: number;
+  publicId?: string;
   createdAt?: any;
   updatedAt?: any;
 }
+

@@ -1,9 +1,8 @@
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { storage } from '../lib/firebase';
+import { uploadToCloudinary, isCloudinaryConfigured } from './cloudinary';
 
 /**
  * Resizes an image file to a maximum dimension and compresses it to JPEG
- * to ensure it stays well under 80 KB and never breaches document limits.
+ * to ensure it stays lightweight and never breaches document limits.
  */
 export async function compressImage(file: File, maxDim = 800, quality = 0.8): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -60,8 +59,8 @@ export async function compressImage(file: File, maxDim = 800, quality = 0.8): Pr
 }
 
 /**
- * Uploads an image either to Firebase Storage or returns an optimized compressed base64 string.
- * Guarantees the image won't exceed Firestore 1MB limits.
+ * Uploads an image either to Cloudinary (preferred) or returns an optimized compressed base64 string fallback.
+ * Used for gift photos, pix QR codes, and custom assets.
  */
 export async function uploadImageFile(file: File, folder = 'uploads'): Promise<string> {
   const isGif = file.type === 'image/gif';
@@ -69,45 +68,30 @@ export async function uploadImageFile(file: File, folder = 'uploads'): Promise<s
   let blobToUpload: Blob | File;
 
   if (isGif) {
-    // GIFs não passam pelo canvas para preservar a animação
-    if (file.size > 700 * 1024) {
-      throw new Error('GIF muito grande (máx. 700 KB). Use um link direto do GIF no campo de meme.');
+    if (file.size > 2 * 1024 * 1024) {
+      throw new Error('GIF muito grande (máx. 2 MB). Use um link direto do GIF no campo correspondente.');
     }
     blobToUpload = file;
   } else {
-    blobToUpload = await compressImage(file, 800, 0.8);
+    blobToUpload = await compressImage(file, 800, 0.82);
   }
 
-  if (storage) {
+  // 1. Try Cloudinary if configured
+  if (isCloudinaryConfigured()) {
     try {
       const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-      const filename = `${folder}/${Date.now()}_${cleanFileName}`;
-      const storageRef = ref(storage, filename);
-
-      // Timeout de 8 segundos com Promise.race
-      const uploadWithTimeout = new Promise<string>(async (resolve, reject) => {
-        const timer = setTimeout(() => {
-          reject(new Error('Storage upload timeout'));
-        }, 8000);
-
-        try {
-          await uploadBytes(storageRef, blobToUpload);
-          const downloadUrl = await getDownloadURL(storageRef);
-          clearTimeout(timer);
-          resolve(downloadUrl);
-        } catch (err) {
-          clearTimeout(timer);
-          reject(err);
-        }
+      const result = await uploadToCloudinary(blobToUpload, {
+        folder: `chadecasa/${folder}`,
+        resourceType: 'image',
+        customFileName: `${Date.now()}_${cleanFileName}`,
       });
-
-      return await uploadWithTimeout;
+      return result.secureUrl || result.url;
     } catch (err) {
-      console.warn('Firebase Storage upload failed, falling back to optimized base64:', err);
+      console.warn('Cloudinary upload warning, falling back to base64:', err);
     }
   }
 
-  // Fallback: return base64 data URL
+  // 2. Fallback: return optimized base64 data URL
   const base64String = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -116,7 +100,7 @@ export async function uploadImageFile(file: File, folder = 'uploads'): Promise<s
   });
 
   if (base64String.length > 900000) {
-    throw new Error('Imagem muito grande para salvar. Escolha uma menor.');
+    throw new Error('Imagem muito grande para salvar. Escolha uma imagem menor ou configure o Cloudinary.');
   }
 
   return base64String;

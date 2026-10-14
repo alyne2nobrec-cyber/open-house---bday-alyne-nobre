@@ -159,6 +159,8 @@ export function subscribeSettings(callback: (settings: EventSettings) => void) {
         galleryImages: Array.isArray(data.galleryImages) && data.galleryImages.length > 0
           ? data.galleryImages
           : DEFAULT_SETTINGS.galleryImages,
+        cloudinaryCloudName: data.cloudinaryCloudName ?? DEFAULT_SETTINGS.cloudinaryCloudName ?? '',
+        cloudinaryUploadPreset: data.cloudinaryUploadPreset ?? DEFAULT_SETTINGS.cloudinaryUploadPreset ?? '',
       });
 
       saveLocalSettings(merged);
