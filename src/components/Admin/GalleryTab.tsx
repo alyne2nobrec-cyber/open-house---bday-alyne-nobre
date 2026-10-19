@@ -203,6 +203,7 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({ settings }) => {
         );
       } catch (err: any) {
         console.error('Error uploading gallery media file to Cloudinary:', err);
+        setError(err?.message || 'Falha no envio deste arquivo.');
         setQueue((prev) =>
           prev.map((it) =>
             it.id === pendingItem.id
@@ -251,8 +252,10 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({ settings }) => {
 
     try {
       await reorderGalleryMediaItems(newItems);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to reorder items:', err);
+      setItems(items);
+      setError(err?.message || 'Falha ao reordenar os itens da galeria.');
     } finally {
       setIsReordering(false);
     }
@@ -269,8 +272,9 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({ settings }) => {
       setTimeout(() => {
         setSavedCaptions((prev) => ({ ...prev, [item.id]: false }));
       }, 2500);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to save caption:', err);
+      setError(err?.message || 'Falha ao salvar legenda.');
     } finally {
       setSavingCaptionId(null);
     }
@@ -287,8 +291,9 @@ export const GalleryTab: React.FC<GalleryTabProps> = ({ settings }) => {
         thumbnailUrl: itemToDelete.thumbnailUrl,
       });
       setItemToDelete(null);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete media item:', err);
+      setError(err?.message || 'Falha ao excluir item da galeria.');
     } finally {
       setIsDeleting(false);
     }
