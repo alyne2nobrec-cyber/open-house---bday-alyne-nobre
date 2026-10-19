@@ -24,6 +24,12 @@ import {
 import { Guest, GiftReservation, EventSettings, GuestStatus } from '../../types';
 import { formatWhatsappUrl, formatPhoneDisplay, isValidWhatsappNumber } from '../../utils/phone';
 import { getReservationsForGuest, updateGuest } from '../../services/guestService';
+import {
+  subscribeWhatsappTemplates,
+  saveWhatsappTemplate,
+  resetWhatsappTemplate,
+  SavedWhatsappTemplates,
+} from '../../services/whatsappTemplateService';
 
 interface WhatsAppTabProps {
   guests: Guest[];
@@ -181,9 +187,91 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   const [templateText, setTemplateText] = useState<string>(TEMPLATES_CONFIG.rsvp_invite.defaultText);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [savedTemplates, setSavedTemplates] = useState<SavedWhatsappTemplates>({});
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  // Texto que foi carregado por último no editor (base para saber se há alterações não salvas)
+  const loadedTextRef = useRef<string>(TEMPLATES_CONFIG.rsvp_invite.defaultText);
+
+  const getEffectiveText = (type: TemplateType): string =>
+    savedTemplates[type] ?? TEMPLATES_CONFIG[type].defaultText;
+
+  const isTemplateCustomized = selectedTemplate in savedTemplates;
+  const isTemplateDirty = templateText !== getEffectiveText(selectedTemplate);
+
+  useEffect(() => {
+    const unsub = subscribeWhatsappTemplates(
+      (saved) => setSavedTemplates(saved),
+      (err) => console.warn('Modelos de WhatsApp (Firestore):', err)
+    );
+    return () => unsub();
+  }, []);
+
+  // Quando os modelos salvos chegam/mudam: se a anfitriã NÃO tem rascunho não salvo, atualiza o editor
+  useEffect(() => {
+    const effective = savedTemplates[selectedTemplate] ?? TEMPLATES_CONFIG[selectedTemplate].defaultText;
+    if (templateText === loadedTextRef.current) {
+      setTemplateText(effective);
+    }
+    loadedTextRef.current = effective;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedTemplates, selectedTemplate]);
+
   const handleSelectTemplate = (type: TemplateType) => {
+    if (type === selectedTemplate) return;
+    if (
+      isTemplateDirty &&
+      !confirm('Você tem alterações não salvas neste modelo. Descartar e trocar de modelo?')
+    ) {
+      return;
+    }
+    const nextText = savedTemplates[type] ?? TEMPLATES_CONFIG[type].defaultText;
+    loadedTextRef.current = nextText;
     setSelectedTemplate(type);
-    setTemplateText(TEMPLATES_CONFIG[type].defaultText);
+    setTemplateText(nextText);
+  };
+
+  const handleSaveTemplate = async () => {
+    const title = TEMPLATES_CONFIG[selectedTemplate].title;
+    const text = templateText.trim();
+    if (!text) {
+      showFeedback('O texto do modelo não pode ficar vazio.');
+      return;
+    }
+    setSavingTemplate(true);
+    try {
+      if (text === TEMPLATES_CONFIG[selectedTemplate].defaultText.trim()) {
+        // Igual ao padrão: não guarda cópia, apenas remove a personalização
+        await resetWhatsappTemplate(selectedTemplate);
+      } else {
+        await saveWhatsappTemplate(selectedTemplate, templateText);
+      }
+      loadedTextRef.current = templateText;
+      showFeedback(`Modelo "${title}" salvo.`);
+    } catch (err) {
+      console.error('Falha ao salvar modelo de WhatsApp:', err);
+      showFeedback('Não foi possível salvar o modelo. Verifique se está logada como administradora.');
+    } finally {
+      setSavingTemplate(false);
+    }
+  };
+
+  const handleResetTemplate = async () => {
+    const title = TEMPLATES_CONFIG[selectedTemplate].title;
+    const defaultText = TEMPLATES_CONFIG[selectedTemplate].defaultText;
+    if (isTemplateCustomized && !confirm(`Voltar o modelo "${title}" para o texto padrão? A sua versão salva será apagada.`)) {
+      return;
+    }
+    setTemplateText(defaultText);
+    loadedTextRef.current = defaultText;
+    if (isTemplateCustomized) {
+      try {
+        await resetWhatsappTemplate(selectedTemplate);
+        showFeedback(`Modelo "${title}" voltou ao padrão.`);
+      } catch (err) {
+        console.error('Falha ao resetar modelo de WhatsApp:', err);
+        showFeedback('Não foi possível restaurar o padrão. Verifique se está logada como administradora.');
+      }
+    }
   };
 
   const handleClearCurrentTemplateHistory = () => {
@@ -604,12 +692,23 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C]">
-                2. Edite o Texto da Mensagem
-              </label>
+              <div className="flex items-center gap-2">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[#7D756C]">
+                  2. Edite o Texto da Mensagem
+                </label>
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                    isTemplateCustomized
+                      ? 'bg-[#FAF4ED] text-[#CF3B25] border-[#EADBCE]'
+                      : 'bg-[#F4EFEB] text-[#68625B] border-[#EADBCE]'
+                  }`}
+                >
+                  {isTemplateCustomized ? 'Personalizado' : 'Padrão'}
+                </span>
+              </div>
               <button
                 type="button"
-                onClick={() => setTemplateText(TEMPLATES_CONFIG[selectedTemplate].defaultText)}
+                onClick={handleResetTemplate}
                 className="text-[10px] font-semibold text-[#C86D51] hover:underline cursor-pointer"
               >
                 Restaurar padrão
@@ -624,6 +723,23 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
               className="w-full p-3.5 rounded-xl border border-[#EADBCE] bg-[#FAF8F5] text-xs text-[#2D2A26] outline-none font-sans leading-relaxed resize-y focus:border-[#C86D51] focus:bg-white transition-colors"
               placeholder="Digite o texto da mensagem..."
             />
+
+            {/* Save Template Action Bar */}
+            <div className="flex items-center gap-3 mt-2">
+              <button
+                type="button"
+                onClick={handleSaveTemplate}
+                disabled={!isTemplateDirty || savingTemplate}
+                className="px-4 py-2 rounded-xl bg-[#C86D51] hover:bg-[#B35D43] disabled:bg-[#EADBCE] disabled:text-[#A59E95] disabled:cursor-not-allowed text-white text-xs font-semibold cursor-pointer shadow-2xs transition-colors flex items-center gap-1.5"
+              >
+                {savingTemplate ? 'Salvando...' : 'Salvar alterações'}
+              </button>
+              {isTemplateDirty && (
+                <span className="text-[11px] text-[#A3432B] font-medium">
+                  Alterações não salvas
+                </span>
+              )}
+            </div>
 
             {/* Quick Variable Insert Tags */}
             <div className="mt-2.5">
