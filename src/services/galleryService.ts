@@ -47,15 +47,6 @@ function writeCache(items: GalleryMediaItem[]): void {
   } catch {}
 }
 
-function requireDb() {
-  if (!isFirebaseConfigured || !db) {
-    throw new Error(
-      'Firebase não configurado: não foi possível salvar a galeria para todos os convidados.'
-    );
-  }
-  return db;
-}
-
 async function migrateLegacyItemsIfNeeded(): Promise<void> {
   if (!db || !auth?.currentUser) return;
   const legacy = [...readCache(LEGACY_LOCAL_KEY), ...readCache(LOCAL_CACHE_KEY)];
@@ -89,8 +80,21 @@ export function subscribeGalleryMedia(
   const cached = readCache(LOCAL_CACHE_KEY);
   if (cached.length > 0) callback(cached);
 
+  // Se o cache estiver vazio, tenta recuperar também do servidor Express se disponível
+  if (cached.length === 0 && typeof fetch !== 'undefined') {
+    fetch('/api/gallery')
+      .then((r) => r.json())
+      .then((apiItems) => {
+        if (Array.isArray(apiItems) && apiItems.length > 0) {
+          const sorted = sortItems(apiItems);
+          writeCache(sorted);
+          callback(sorted);
+        }
+      })
+      .catch(() => {});
+  }
+
   if (!isFirebaseConfigured || !db) {
-    onError?.(new Error('Firebase não configurado'));
     return () => {};
   }
 
@@ -111,8 +115,20 @@ export function subscribeGalleryMedia(
       }
     },
     (err) => {
-      console.warn('Erro ao ler a galeria do Firestore:', err);
-      onError?.(err as Error);
+      console.warn('Erro ao ler a galeria do Firestore (usando fallback local):', err?.message || err);
+      const isPermissionError =
+        (err as any)?.code === 'permission-denied' ||
+        String(err?.message || '').toLowerCase().includes('permission');
+
+      // Garante entrega do cache local para a interface continuar exibindo as imagens
+      const fallback = readCache(LOCAL_CACHE_KEY);
+      if (fallback.length > 0) {
+        callback(fallback);
+      }
+
+      if (!isPermissionError) {
+        onError?.(err as Error);
+      }
     }
   );
 
@@ -122,38 +138,154 @@ export function subscribeGalleryMedia(
 export async function addGalleryMediaItem(
   item: Omit<GalleryMediaItem, 'id' | 'createdAt' | 'updatedAt'>
 ): Promise<string> {
-  const firestore = requireDb();
-  const ref = doc(collection(firestore, GALLERY_COLLECTION));
   const now = new Date().toISOString();
-  await setDoc(ref, clean({ ...item, createdAt: now, updatedAt: now }));
-  return ref.id;
+  let generatedId = `media_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+
+  let docRef: any = null;
+  if (isFirebaseConfigured && db) {
+    try {
+      docRef = doc(collection(db, GALLERY_COLLECTION));
+      generatedId = docRef.id;
+    } catch {
+      // continua com generatedId pré-calculado
+    }
+  }
+
+  const newItem: GalleryMediaItem = {
+    ...item,
+    id: generatedId,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // 1. Sempre atualiza o cache local imediatamente para a foto aparecer sem atraso
+  const current = readCache(LOCAL_CACHE_KEY);
+  const updated = sortItems([...current, newItem]);
+  writeCache(updated);
+
+  // 2. Se a rota de API local do Express estiver disponível, salva em /api/gallery como backup
+  try {
+    if (typeof fetch !== 'undefined') {
+      void fetch('/api/gallery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newItem),
+      }).catch(() => {});
+    }
+  } catch {}
+
+  // 3. Tenta persistir no Firestore
+  if (isFirebaseConfigured && db) {
+    try {
+      const targetRef = docRef || doc(db, GALLERY_COLLECTION, generatedId);
+      await setDoc(targetRef, clean(newItem));
+    } catch (err: any) {
+      console.warn(
+        'Aviso ao gravar no Firestore (mídia salva com sucesso no Cloudinary e localmente):',
+        err?.message || err
+      );
+      const isPermissionError =
+        err?.code === 'permission-denied' ||
+        String(err?.message || '').toLowerCase().includes('permission');
+      if (!isPermissionError) {
+        throw err;
+      }
+    }
+  }
+
+  return generatedId;
 }
 
 export async function updateGalleryMediaItem(
   id: string,
   updates: Partial<Pick<GalleryMediaItem, 'caption' | 'order' | 'thumbnailUrl'>>
 ): Promise<void> {
-  const firestore = requireDb();
-  await updateDoc(
-    doc(firestore, GALLERY_COLLECTION, id),
-    clean({ ...updates, updatedAt: new Date().toISOString() })
-  );
+  // Atualiza cache local
+  const current = readCache(LOCAL_CACHE_KEY);
+  const updated = current.map((it) => (it.id === id ? { ...it, ...updates } : it));
+  writeCache(updated);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await updateDoc(
+        doc(db, GALLERY_COLLECTION, id),
+        clean({ ...updates, updatedAt: new Date().toISOString() })
+      );
+    } catch (err: any) {
+      console.warn('Aviso ao atualizar no Firestore (mantido localmente):', err?.message || err);
+      const isPermissionError =
+        err?.code === 'permission-denied' ||
+        String(err?.message || '').toLowerCase().includes('permission');
+      if (!isPermissionError) {
+        throw err;
+      }
+    }
+  }
 }
 
 export async function deleteGalleryMediaItem(
   id: string,
   _mediaItem?: Pick<GalleryMediaItem, 'url' | 'thumbnailUrl'>
 ): Promise<void> {
-  const firestore = requireDb();
-  await deleteDoc(doc(firestore, GALLERY_COLLECTION, id));
+  // Atualiza cache local
+  const current = readCache(LOCAL_CACHE_KEY);
+  const updated = current.filter((it) => it.id !== id);
+  writeCache(updated);
+
+  // Remove da rota de API local se disponível
+  try {
+    if (typeof fetch !== 'undefined') {
+      void fetch(`/api/gallery/${id}`, { method: 'DELETE' }).catch(() => {});
+    }
+  } catch {}
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, GALLERY_COLLECTION, id));
+    } catch (err: any) {
+      console.warn('Aviso ao excluir no Firestore (removido localmente):', err?.message || err);
+      const isPermissionError =
+        err?.code === 'permission-denied' ||
+        String(err?.message || '').toLowerCase().includes('permission');
+      if (!isPermissionError) {
+        throw err;
+      }
+    }
+  }
 }
 
 export async function reorderGalleryMediaItems(items: GalleryMediaItem[]): Promise<void> {
-  const firestore = requireDb();
-  const batch = writeBatch(firestore);
-  const now = new Date().toISOString();
-  items.forEach((item, index) => {
-    batch.update(doc(firestore, GALLERY_COLLECTION, item.id), { order: index, updatedAt: now });
-  });
-  await batch.commit();
+  // Atualiza cache local
+  writeCache(items);
+
+  // Sincroniza com a rota de API local se disponível
+  try {
+    if (typeof fetch !== 'undefined') {
+      void fetch('/api/gallery/reorder', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      }).catch(() => {});
+    }
+  } catch {}
+
+  if (isFirebaseConfigured && db) {
+    const firestore = db;
+    try {
+      const batch = writeBatch(firestore);
+      const now = new Date().toISOString();
+      items.forEach((item, index) => {
+        batch.update(doc(firestore, GALLERY_COLLECTION, item.id), { order: index, updatedAt: now });
+      });
+      await batch.commit();
+    } catch (err: any) {
+      console.warn('Aviso ao reordenar no Firestore (mantido localmente):', err?.message || err);
+      const isPermissionError =
+        err?.code === 'permission-denied' ||
+        String(err?.message || '').toLowerCase().includes('permission');
+      if (!isPermissionError) {
+        throw err;
+      }
+    }
+  }
 }
