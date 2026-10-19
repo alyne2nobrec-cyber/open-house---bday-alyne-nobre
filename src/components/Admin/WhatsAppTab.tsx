@@ -189,6 +189,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
 
   const [savedTemplates, setSavedTemplates] = useState<SavedWhatsappTemplates>({});
   const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateError, setTemplateError] = useState<string | null>(null);
   // Texto que foi carregado por último no editor (base para saber se há alterações não salvas)
   const loadedTextRef = useRef<string>(TEMPLATES_CONFIG.rsvp_invite.defaultText);
 
@@ -209,10 +210,13 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   // Quando os modelos salvos chegam/mudam: se a anfitriã NÃO tem rascunho não salvo, atualiza o editor
   useEffect(() => {
     const effective = savedTemplates[selectedTemplate] ?? TEMPLATES_CONFIG[selectedTemplate].defaultText;
+    // Só adota o texto vindo do Firestore se NÃO houver rascunho não salvo.
+    // Importante: a base (loadedTextRef) só muda quando adotamos; assim, se uma gravação for
+    // recusada pelo servidor e o Firestore "desfizer" o valor, o texto digitado NÃO é sobrescrito.
     if (templateText === loadedTextRef.current) {
       setTemplateText(effective);
+      loadedTextRef.current = effective;
     }
-    loadedTextRef.current = effective;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedTemplates, selectedTemplate]);
 
@@ -226,6 +230,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     }
     const nextText = savedTemplates[type] ?? TEMPLATES_CONFIG[type].defaultText;
     loadedTextRef.current = nextText;
+    setTemplateError(null);
     setSelectedTemplate(type);
     setTemplateText(nextText);
   };
@@ -238,6 +243,7 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       return;
     }
     setSavingTemplate(true);
+    setTemplateError(null);
     try {
       if (text === TEMPLATES_CONFIG[selectedTemplate].defaultText.trim()) {
         // Igual ao padrão: não guarda cópia, apenas remove a personalização
@@ -249,7 +255,12 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       showFeedback(`Modelo "${title}" salvo.`);
     } catch (err) {
       console.error('Falha ao salvar modelo de WhatsApp:', err);
-      showFeedback('Não foi possível salvar o modelo. Verifique se está logada como administradora.');
+      const code = (err as { code?: string })?.code;
+      setTemplateError(
+        code === 'permission-denied'
+          ? 'Sem permissão para salvar. Confira se está logada como administradora e se as regras do Firestore foram publicadas (firebase deploy --only firestore:rules). Seu texto foi mantido.'
+          : 'Não foi possível salvar o modelo. Seu texto foi mantido; tente novamente.'
+      );
     } finally {
       setSavingTemplate(false);
     }
@@ -740,6 +751,11 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
                 </span>
               )}
             </div>
+            {templateError && (
+              <p className="mt-2 text-[11px] font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {templateError}
+              </p>
+            )}
 
             {/* Quick Variable Insert Tags */}
             <div className="mt-2.5">
