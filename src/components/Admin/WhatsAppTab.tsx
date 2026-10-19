@@ -248,19 +248,24 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
       if (text === TEMPLATES_CONFIG[selectedTemplate].defaultText.trim()) {
         // Igual ao padrão: não guarda cópia, apenas remove a personalização
         await resetWhatsappTemplate(selectedTemplate);
+        setSavedTemplates((prev) => {
+          const next = { ...prev };
+          delete next[selectedTemplate];
+          return next;
+        });
       } else {
         await saveWhatsappTemplate(selectedTemplate, templateText);
+        setSavedTemplates((prev) => ({
+          ...prev,
+          [selectedTemplate]: templateText,
+        }));
       }
       loadedTextRef.current = templateText;
+      setTemplateError(null);
       showFeedback(`Modelo "${title}" salvo.`);
     } catch (err) {
-      console.error('Falha ao salvar modelo de WhatsApp:', err);
-      const code = (err as { code?: string })?.code;
-      setTemplateError(
-        code === 'permission-denied'
-          ? 'Sem permissão para salvar. Confira se está logada como administradora e se as regras do Firestore foram publicadas (firebase deploy --only firestore:rules). Seu texto foi mantido.'
-          : 'Não foi possível salvar o modelo. Seu texto foi mantido; tente novamente.'
-      );
+      console.warn('Falha ao salvar modelo de WhatsApp:', err);
+      setTemplateError('Não foi possível salvar o modelo. Seu texto foi mantido; tente novamente.');
     } finally {
       setSavingTemplate(false);
     }
@@ -274,12 +279,18 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
     }
     setTemplateText(defaultText);
     loadedTextRef.current = defaultText;
+    setTemplateError(null);
     if (isTemplateCustomized) {
       try {
         await resetWhatsappTemplate(selectedTemplate);
+        setSavedTemplates((prev) => {
+          const next = { ...prev };
+          delete next[selectedTemplate];
+          return next;
+        });
         showFeedback(`Modelo "${title}" voltou ao padrão.`);
       } catch (err) {
-        console.error('Falha ao resetar modelo de WhatsApp:', err);
+        console.warn('Falha ao resetar modelo de WhatsApp:', err);
         showFeedback('Não foi possível restaurar o padrão. Verifique se está logada como administradora.');
       }
     }
