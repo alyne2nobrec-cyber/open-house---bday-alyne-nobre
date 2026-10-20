@@ -197,14 +197,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Quem presenteou mas NÃO está na lista de convidados (não confirmou presença / não foi cadastrado).
   // Esses não aparecem na aba WhatsApp para agradecer até serem adicionados à lista.
   const giftersNotInGuestList = (() => {
-    const guestPhones = new Set(guests.map((g) => normalizePhoneId(g.whatsapp)).filter(Boolean) as string[]);
-    const guestNames = new Set(guests.map((g) => normalizeGuestName(g.name)).filter(Boolean));
     const byKey = new Map<string, { name: string; whatsapp: string; count: number; total: number }>();
     for (const r of reservations) {
-      const phoneKey = normalizePhoneId(r.guestWhatsapp);
-      const nameKey = normalizeGuestName(r.guestName);
-      if ((phoneKey && guestPhones.has(phoneKey)) || (nameKey && guestNames.has(nameKey))) continue;
-      const key = phoneKey || nameKey;
+      // Mesma regra de cruzamento usada nas abas Convidados e WhatsApp (telefone é a chave)
+      const isInList = guests.some((g) => getReservationsForGuest(g, [r]).length > 0);
+      if (isInList) continue;
+      const key = normalizePhoneId(r.guestWhatsapp) || normalizeGuestName(r.guestName);
       if (!key) continue;
       const prev = byKey.get(key);
       byKey.set(key, {
@@ -247,7 +245,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     const rows = guests.map((g) => {
       const gRes = getReservationsForGuest(g, reservations).map((r) => ({
         ...r,
-        giftName: reservations.find((item) => item.guestName === r.guestName && item.guestWhatsapp === r.guestWhatsapp)?.giftName || 'Presente',
+        giftName: r.giftName || 'Presente',
       }));
       const giftsSummary = gRes
         .map((r) => `${r.guestName} -> ${r.giftName}`)

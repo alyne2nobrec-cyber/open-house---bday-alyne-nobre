@@ -366,14 +366,12 @@ export function getReservationsForGuest(
     const reservationName = normalizeGuestName(reservation.guestName);
     const reservationPhone = normalizePhoneId(reservation.guestWhatsapp);
 
-    if (!guestName && !guestPhone) return false;
+    // Chave única = telefone. Se os dois lados têm telefone, só o telefone decide:
+    // nomes parecidos (ex.: "Chris" x "Tia Chris") NÃO podem juntar presentes de pessoas diferentes.
+    if (guestPhone && reservationPhone) return guestPhone === reservationPhone;
 
-    if (guestPhone && reservationPhone && guestPhone === reservationPhone) return true;
-    if (guestName && reservationName && guestName === reservationName) return true;
-    if (guestName && reservationName && reservationName.includes(guestName)) return true;
-    if (guestPhone && reservationPhone && reservationPhone.includes(guestPhone)) return true;
-
-    return false;
+    // Sem telefone em um dos lados: só vale nome IDÊNTICO (nunca "contém").
+    return Boolean(guestName && reservationName && guestName === reservationName);
   });
 }
 
