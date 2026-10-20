@@ -94,7 +94,12 @@ service cloud.firestore {
       allow get: if true;
       allow list: if isAdmin();
       allow create: if isAdmin() || isValidGuestPayload();
-      allow update: if isAdmin() || isValidGuestPayload();
+      // Convidado não pode alterar o próprio limite de acompanhantes
+      allow update: if isAdmin() || (
+        isValidGuestPayload()
+        && (!('maxCompanions' in resource.data)
+          || request.resource.data.maxCompanions == resource.data.maxCompanions)
+      );
       allow delete: if isAdmin();
     }
 

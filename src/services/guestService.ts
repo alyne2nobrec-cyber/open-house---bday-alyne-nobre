@@ -311,20 +311,8 @@ export async function findGuestInRegistry(params: {
 
   if (!cleanName && !phoneKey) return undefined;
 
-  // 1. Check local storage
-  const localList = getLocalStoredGuests();
-  const localMatch = findMatchingGuest(localList, name, whatsapp);
-  if (localMatch) return localMatch;
-
-  // 2. Check INITIAL_GUESTS
-  const initialGuestsList: Guest[] = INITIAL_GUESTS.map((g, idx) => ({
-    ...g,
-    id: makeGuestId(g.whatsapp, g.name) || `guest-init-${idx}`,
-  }));
-  const initialMatch = findMatchingGuest(initialGuestsList, name, whatsapp);
-  if (initialMatch) return initialMatch;
-
-  // 3. If Firebase is configured, try candidate document IDs via getDoc
+  // 1. Firestore é a fonte da verdade (limite de acompanhantes definido pela anfitriã).
+  //    O cache local pode estar desatualizado e NUNCA deve ter prioridade sobre ele.
   if (isFirebaseConfigured && db) {
     const candidateIds: string[] = [];
     if (phoneKey) {
@@ -350,6 +338,19 @@ export async function findGuestInRegistry(params: {
       }
     }
   }
+
+  // 2. Fallback: cache local (offline / Firebase não configurado)
+  const localList = getLocalStoredGuests();
+  const localMatch = findMatchingGuest(localList, name, whatsapp);
+  if (localMatch) return localMatch;
+
+  // 3. Fallback: INITIAL_GUESTS
+  const initialGuestsList: Guest[] = INITIAL_GUESTS.map((g, idx) => ({
+    ...g,
+    id: makeGuestId(g.whatsapp, g.name) || `guest-init-${idx}`,
+  }));
+  const initialMatch = findMatchingGuest(initialGuestsList, name, whatsapp);
+  if (initialMatch) return initialMatch;
 
   return undefined;
 }
@@ -499,7 +500,7 @@ export async function createGuestRsvp(params: {
     ...guestData,
     name: preferredLocal?.name || guestData.name,
     whatsapp: preferredLocal?.whatsapp || guestData.whatsapp,
-    maxCompanions: preferredLocal?.maxCompanions ?? guestData.maxCompanions,
+    maxCompanions: guestData.maxCompanions,
     createdAt: preferredLocal?.createdAt || guestData.createdAt,
   };
   const insertionIndex = matchingIndexes.length ? matchingIndexes[0].index : 0;
