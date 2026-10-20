@@ -50,13 +50,14 @@ import {
   deleteGuest,
   importGuestsFromList,
   getReservationsForGuest,
+  normalizeGuestName,
 } from '../../services/guestService';
 import { updateEventSettings } from '../../services/settingsService';
 import { scrapeProductFromUrl } from '../../utils/scraper';
 import { parseGuestsCsv, downloadSampleGuestsCsv, ParsedCsvGuest } from '../../utils/csvGuestParser';
 import { parseGiftsCsv, downloadSampleGiftsCsv, ParsedCsvGift } from '../../utils/csvGiftParser';
 import { downloadCsvFile } from '../../utils/csvExport';
-import { formatWhatsappUrl, formatPhoneDisplay } from '../../utils/phone';
+import { formatWhatsappUrl, formatPhoneDisplay, normalizePhoneId } from '../../utils/phone';
 import { uploadImageFile } from '../../utils/imageUpload';
 import { normalizeMemeUrl, getMemeKind } from '../../utils/memeMedia';
 import { saveCloudinaryConfigLocally, testCloudinaryConnection } from '../../utils/cloudinary';
@@ -192,6 +193,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const linkReservedStatusList = linkReservations.filter((r) => !r.fulfillmentStatus || r.fulfillmentStatus === 'reserved');
   const linkPurchasedStatusList = linkReservations.filter((r) => r.fulfillmentStatus === 'purchased');
   const linkReceivedStatusList = linkReservations.filter((r) => r.fulfillmentStatus === 'received');
+
+  // Quem presenteou mas NÃO está na lista de convidados (não confirmou presença / não foi cadastrado).
+  // Esses não aparecem na aba WhatsApp para agradecer até serem adicionados à lista.
+  const giftersNotInGuestList = (() => {
+    const guestPhones = new Set(guests.map((g) => normalizePhoneId(g.whatsapp)).filter(Boolean) as string[]);
+    const guestNames = new Set(guests.map((g) => normalizeGuestName(g.name)).filter(Boolean));
+    const byKey = new Map<string, { name: string; whatsapp: string; count: number; total: number }>();
+    for (const r of reservations) {
+      const phoneKey = normalizePhoneId(r.guestWhatsapp);
+      const nameKey = normalizeGuestName(r.guestName);
+      if ((phoneKey && guestPhones.has(phoneKey)) || (nameKey && guestNames.has(nameKey))) continue;
+      const key = phoneKey || nameKey;
+      if (!key) continue;
+      const prev = byKey.get(key);
+      byKey.set(key, {
+        name: prev?.name || r.guestName,
+        whatsapp: prev?.whatsapp || r.guestWhatsapp || '',
+        count: (prev?.count || 0) + (r.quantity || 1),
+        total: (prev?.total || 0) + getReservationAmount(r),
+      });
+    }
+    return Array.from(byKey.values());
+  })();
+
+  const handleAddGifterToGuests = async (g: { name: string; whatsapp: string }) => {
+    try {
+      await addGuest({ name: g.name, whatsapp: g.whatsapp, maxCompanions: 0, status: 'pending' });
+    } catch (err: any) {
+      alert('Não foi possível adicionar à lista: ' + (err?.message || 'tente novamente.'));
+    }
+  };
 
   const totalLinkAmount = linkReservations.reduce((acc, r) => acc + getReservationAmount(r), 0);
   const totalLinkItems = linkReservations.reduce((acc, r) => acc + (r.quantity || 1), 0);
@@ -817,6 +849,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             }`}
           >
             Quem está me presenteando? ({reservations.length})
+            {giftersNotInGuestList.length > 0 && (
+              <span
+                title="Presenteadores que ainda não estão na lista de convidados"
+                className="ml-1.5 inline-flex items-center justify-center min-w-5 h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold"
+              >
+                {giftersNotInGuestList.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -1401,6 +1441,46 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Alerta: presenteadores fora da lista de convidados */}
+            {giftersNotInGuestList.length > 0 && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 shadow-2xs">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <strong className="font-semibold">
+                      {giftersNotInGuestList.length} {giftersNotInGuestList.length === 1 ? 'pessoa te presenteou' : 'pessoas te presentearam'} mas {giftersNotInGuestList.length === 1 ? 'não está' : 'não estão'} na lista de convidados.
+                    </strong>
+                    <p className="mt-0.5 text-amber-800">
+                      Sem estar na lista, elas não aparecem na aba WhatsApp para você agradecer. Adicione-as com um clique.
+                    </p>
+                  </div>
+                </div>
+                <ul className="mt-3 space-y-2">
+                  {giftersNotInGuestList.map((g) => (
+                    <li
+                      key={g.whatsapp || g.name}
+                      className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-white border border-amber-100"
+                    >
+                      <div className="min-w-0 text-xs">
+                        <span className="font-semibold text-[#2D2A26] block truncate">{g.name}</span>
+                        <span className="text-[#7D756C]">
+                          {formatPhoneDisplay(g.whatsapp) || 'sem WhatsApp'} • {g.count} {g.count === 1 ? 'item' : 'itens'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleAddGifterToGuests(g)}
+                        className="h-8 px-3 rounded-lg bg-[#C86D51] hover:bg-[#A95339] text-white text-[11px] font-semibold flex items-center gap-1.5 shrink-0 cursor-pointer"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" />
+                        Adicionar à lista
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             {/* 4 Cards de Resumo Financeiro & Entregas */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
