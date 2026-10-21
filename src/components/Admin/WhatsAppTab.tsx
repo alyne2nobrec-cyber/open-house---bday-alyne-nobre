@@ -25,6 +25,15 @@ import { Guest, GiftReservation, EventSettings, GuestStatus } from '../../types'
 import { formatWhatsappUrl, formatPhoneDisplay, isValidWhatsappNumber } from '../../utils/phone';
 import { getReservationsForGuest, updateGuest } from '../../services/guestService';
 import {
+  SentMap,
+  readSentCache,
+  writeSentCache,
+  emptySentMap,
+  subscribeWhatsappSent,
+  setGuestSent,
+  clearSent,
+} from '../../services/whatsappSentService';
+import {
   subscribeWhatsappTemplates,
   saveWhatsappTemplate,
   resetWhatsappTemplate,
@@ -103,59 +112,28 @@ const TEMPLATE_KEYS: TemplateType[] = [
   'custom',
 ];
 
-const STORAGE_SENT_BY_TEMPLATE_KEY = 'alyne_whatsapp_sent_by_template';
-const STORAGE_SENT_KEY_LEGACY = 'alyne_whatsapp_sent_guests';
-
 export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   guests,
   reservations,
   settings,
 }) => {
-  // 1. Sent status tracking per message template (persisted in localStorage)
-  const [sentMap, setSentMap] = useState<Record<TemplateType, string[]>>(() => {
-    try {
-      const stored = localStorage.getItem(STORAGE_SENT_BY_TEMPLATE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return {
-          rsvp_invite: Array.isArray(parsed?.rsvp_invite) ? parsed.rsvp_invite : [],
-          rsvp_reminder: Array.isArray(parsed?.rsvp_reminder) ? parsed.rsvp_reminder : [],
-          event_details: Array.isArray(parsed?.event_details) ? parsed.event_details : [],
-          gift_registry: Array.isArray(parsed?.gift_registry) ? parsed.gift_registry : [],
-          gift_thanks: Array.isArray(parsed?.gift_thanks) ? parsed.gift_thanks : [],
-          custom: Array.isArray(parsed?.custom) ? parsed.custom : [],
-        };
-      }
-      // Migration from previous single-list storage: copy existing marked guests to "rsvp_invite"
-      const legacy = localStorage.getItem(STORAGE_SENT_KEY_LEGACY);
-      const legacyList = legacy ? JSON.parse(legacy) : [];
-      return {
-        rsvp_invite: Array.isArray(legacyList) ? legacyList : [],
-        rsvp_reminder: [],
-        event_details: [],
-        gift_registry: [],
-        gift_thanks: [],
-        custom: [],
-      };
-    } catch {
-      return {
-        rsvp_invite: [],
-        rsvp_reminder: [],
-        event_details: [],
-        gift_registry: [],
-        gift_thanks: [],
-        custom: [],
-      };
-    }
-  });
+  // 1. Marcações de "enviado" por modelo — salvas no Firestore (sincroniza celular ⇄ PC em tempo real)
+  const [sentMap, setSentMap] = useState<SentMap>(() => readSentCache());
 
-  const saveSentMap = (next: Record<TemplateType, string[]>) => {
+  useEffect(() => {
+    const unsub = subscribeWhatsappSent((remote) => setSentMap(remote));
+    return () => unsub();
+  }, []);
+
+  const handleSentSyncError = (e: unknown) => {
+    console.warn('Falha ao sincronizar marcação de envio:', e);
+    showFeedback('Não foi possível sincronizar a marcação. Verifique se está logada como administradora.');
+  };
+
+  // Atualiza a tela na hora (otimista) e grava no cache local; o Firestore confirma em seguida
+  const applyLocalSent = (next: SentMap) => {
     setSentMap(next);
-    try {
-      localStorage.setItem(STORAGE_SENT_BY_TEMPLATE_KEY, JSON.stringify(next));
-    } catch (e) {
-      console.warn('Failed to save sent IDs by template to localStorage', e);
-    }
+    writeSentCache(next);
   };
 
   const isGuestSentForTemplate = (guestId: string, template: TemplateType): boolean => {
@@ -164,22 +142,19 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
 
   const toggleSentForTemplate = (guestId: string, template: TemplateType) => {
     const current = sentMap[template] || [];
-    const nextList = current.includes(guestId)
-      ? current.filter((id) => id !== guestId)
-      : [...current, guestId];
-    saveSentMap({
+    const willBeSent = !current.includes(guestId);
+    applyLocalSent({
       ...sentMap,
-      [template]: nextList,
+      [template]: willBeSent ? [...current, guestId] : current.filter((id) => id !== guestId),
     });
+    setGuestSent(template, guestId, willBeSent).catch(handleSentSyncError);
   };
 
   const markGuestSentForTemplate = (guestId: string, template: TemplateType) => {
     const current = sentMap[template] || [];
     if (!current.includes(guestId)) {
-      saveSentMap({
-        ...sentMap,
-        [template]: [...current, guestId],
-      });
+      applyLocalSent({ ...sentMap, [template]: [...current, guestId] });
+      setGuestSent(template, guestId, true).catch(handleSentSyncError);
     }
   };
 
@@ -299,24 +274,16 @@ export const WhatsAppTab: React.FC<WhatsAppTabProps> = ({
   const handleClearCurrentTemplateHistory = () => {
     const title = TEMPLATES_CONFIG[selectedTemplate].title;
     if (confirm(`Deseja zerar as marcações de envio do modelo "${title}"?`)) {
-      saveSentMap({
-        ...sentMap,
-        [selectedTemplate]: [],
-      });
+      applyLocalSent({ ...sentMap, [selectedTemplate]: [] });
+      clearSent(selectedTemplate).catch(handleSentSyncError);
       showFeedback(`Marcações do modelo "${title}" foram zeradas.`);
     }
   };
 
   const handleClearAllHistory = () => {
     if (confirm('Deseja zerar o histórico de mensagens enviadas de TODOS os modelos?')) {
-      saveSentMap({
-        rsvp_invite: [],
-        rsvp_reminder: [],
-        event_details: [],
-        gift_registry: [],
-        gift_thanks: [],
-        custom: [],
-      });
+      applyLocalSent(emptySentMap());
+      clearSent().catch(handleSentSyncError);
       showFeedback('Histórico de todos os modelos foi zerado.');
     }
   };

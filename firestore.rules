@@ -127,6 +127,11 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Marcações de "mensagem enviada" do painel WhatsApp (só a administradora)
+    match /whatsappSent/{id} {
+      allow read, write: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
