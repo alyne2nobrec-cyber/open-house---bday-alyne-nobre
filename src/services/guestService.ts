@@ -440,12 +440,12 @@ export async function createGuestRsvp(params: {
         confirmedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      try {
+      // updateDoc em documento inexistente é negado pelas regras (resource == null →
+      // permission-denied, não not-found). Por isso checamos a existência antes (get é público).
+      const existingSnap = await getDoc(firestoreGuestDoc);
+      if (existingSnap.exists()) {
         await updateDoc(firestoreGuestDoc, payload);
-      } catch (error: unknown) {
-        const isMissingDocument = error && typeof error === 'object' &&
-          'code' in error && error.code === 'not-found';
-        if (!isMissingDocument) throw error;
+      } else {
         await setDoc(firestoreGuestDoc, {
           ...payload,
           createdAt: serverTimestamp(),
@@ -453,7 +453,13 @@ export async function createGuestRsvp(params: {
       }
     } catch (e: unknown) {
       console.error('Firebase guest creation error:', e);
-      throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
+      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : '';
+      if (code === 'unavailable' || code === 'deadline-exceeded' || code === 'cancelled') {
+        throw new Error('Não foi possível enviar sua confirmação. Verifique sua conexão e tente novamente.');
+      }
+      throw new Error(
+        `Não foi possível salvar sua confirmação agora${code ? ` (${code})` : ''}. Tente novamente em instantes ou avise a Alyne pelo WhatsApp.`
+      );
     }
   }
 
