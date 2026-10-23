@@ -444,7 +444,14 @@ export async function createGuestRsvp(params: {
       // permission-denied, não not-found). Por isso checamos a existência antes (get é público).
       const existingSnap = await getDoc(firestoreGuestDoc);
       if (existingSnap.exists()) {
-        await updateDoc(firestoreGuestDoc, payload);
+        const existingData = existingSnap.data();
+        const hostMaxCompanions = existingData?.maxCompanions !== undefined
+          ? existingData.maxCompanions
+          : maxAllowedCompanions;
+        await updateDoc(firestoreGuestDoc, {
+          ...payload,
+          maxCompanions: hostMaxCompanions,
+        });
       } else {
         await setDoc(firestoreGuestDoc, {
           ...payload,

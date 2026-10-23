@@ -98,6 +98,7 @@ service cloud.firestore {
       allow update: if isAdmin() || (
         isValidGuestPayload()
         && (!('maxCompanions' in resource.data)
+          || !('maxCompanions' in request.resource.data)
           || request.resource.data.maxCompanions == resource.data.maxCompanions)
       );
       allow delete: if isAdmin();
