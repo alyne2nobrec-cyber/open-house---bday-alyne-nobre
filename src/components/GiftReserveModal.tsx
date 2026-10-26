@@ -91,7 +91,7 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
 
   if (!gift) return null;
 
-  const isSoldOut = gift.availableQuantity <= 0;
+  const isSoldOut = gift.status === 'sold_out' || gift.availableQuantity <= 0;
   const maxAvailable = Math.max(1, gift.availableQuantity);
 
   const handleCopyPix = async () => {
@@ -182,6 +182,109 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
       setLoading(false);
     }
   };
+
+  const renderPurchaseLink = (description: string) => (
+    <>
+      {gift.purchaseUrl && (
+        <div className="bg-[#FFFFFF] border border-[#E8D4B8] rounded-2xl p-4 mb-4 text-left">
+          <div className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A82D1B] mb-1">
+            Comprar na loja
+          </div>
+          <p className="text-xs text-[#4B5A72] mb-3">
+            {description}
+          </p>
+          <a
+            href={gift.purchaseUrl}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="w-full h-11 rounded-xl bg-[#1B2F4E] hover:bg-black text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+          >
+            <ExternalLink className="w-4 h-4" />
+            <span>Acessar Link do Produto na Loja</span>
+          </a>
+        </div>
+      )}
+  </>
+  );
+
+  const renderShipping = () => (
+    <>
+      {gift.purchaseUrl && settings?.shippingStreet?.trim() && (
+        <div className="bg-[#FFFFFF] border-2 border-[#CF3B25]/30 rounded-2xl p-5 mb-6 text-left shadow-xs">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-7 h-7 rounded-lg bg-[#FDE9E3] flex items-center justify-center text-[#CF3B25] shrink-0">
+              <Truck className="w-4 h-4" />
+            </div>
+            <div>
+              <div className="text-xs font-mono font-bold uppercase tracking-wider text-[#A82D1B]">
+                Aviso: Para onde enviar o presente
+              </div>
+              <p className="text-[11px] text-[#4B5A72]">
+                Ao comprar online, solicite a entrega diretamente neste endereço:
+              </p>
+            </div>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#FBF4E8] border border-[#F7E6D0] text-xs text-[#1B2F4E] space-y-1.5 mt-3">
+            {settings.shippingRecipientName && (
+              <div className="flex items-start gap-1.5">
+                <span className="text-[#5B6B82] font-medium shrink-0">Destinatário:</span>
+                <strong className="text-[#1B2F4E] font-semibold">{settings.shippingRecipientName}</strong>
+              </div>
+            )}
+            <div className="flex items-start gap-1.5">
+              <span className="text-[#5B6B82] font-medium shrink-0">Endereço:</span>
+              <span className="font-semibold text-[#1B2F4E]">
+                {settings.shippingStreet}
+                {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
+              </span>
+            </div>
+            {(settings.shippingNeighborhood || settings.shippingCity) && (
+              <div className="text-[#3E5070]">
+                {settings.shippingNeighborhood ? `${settings.shippingNeighborhood} — ` : ''}
+                {settings.shippingCity || ''}
+              </div>
+            )}
+            {settings.shippingZip && (
+              <div>
+                <span className="text-[#5B6B82] font-medium">CEP:</span>{' '}
+                <strong className="font-mono text-[#1B2F4E]">{settings.shippingZip}</strong>
+              </div>
+            )}
+            {settings.shippingPhone && (
+              <div>
+                <span className="text-[#5B6B82] font-medium">Contato entrega:</span>{' '}
+                <span className="font-medium text-[#1B2F4E]">{settings.shippingPhone}</span>
+              </div>
+            )}
+            {settings.shippingNotes && (
+              <div className="pt-1 text-[11px] text-[#5B6B82] italic border-t border-[#F7E6D0] mt-1.5">
+                <strong>Instruções de entrega:</strong> {settings.shippingNotes}
+              </div>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleCopyShippingAddress}
+            className="w-full mt-3 h-11 px-4 rounded-xl bg-[#FBF4E8] hover:bg-[#F7E6D0] border border-[#E8D4B8] text-[#1B2F4E] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
+          >
+            {shippingCopied ? (
+              <>
+                <Check className="w-4 h-4 text-emerald-600" />
+                <span className="text-emerald-700 font-bold">Endereço Completo Copiado!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-4 h-4 text-[#A82D1B]" />
+                <span>Copiar Endereço Completo de Entrega</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+  </>
+  );
 
   const qrCodeUrl = qrCodeDataUrl || (gift.pixQrCodeUrl ? gift.pixQrCodeUrl : '');
 
@@ -325,100 +428,9 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
               </div>
             )}
 
-            {gift.purchaseUrl && (
-              <div className="bg-[#FFFFFF] border border-[#E8D4B8] rounded-2xl p-4 mb-4 text-left">
-                <div className="text-xs font-mono font-semibold uppercase tracking-wider text-[#A82D1B] mb-1">
-                  Comprar na loja
-                </div>
-                <p className="text-xs text-[#4B5A72] mb-3">
-                  Você pode adquirir diretamente no link da loja indicada:
-                </p>
-                <a
-                  href={gift.purchaseUrl}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="w-full h-11 rounded-xl bg-[#1B2F4E] hover:bg-black text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Acessar Link do Produto na Loja</span>
-                </a>
-              </div>
-            )}
+            {renderPurchaseLink('Você pode adquirir diretamente no link da loja indicada:')}
 
-            {gift.purchaseUrl && settings?.shippingStreet?.trim() && (
-              <div className="bg-[#FFFFFF] border-2 border-[#CF3B25]/30 rounded-2xl p-5 mb-6 text-left shadow-xs">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-7 h-7 rounded-lg bg-[#FDE9E3] flex items-center justify-center text-[#CF3B25] shrink-0">
-                    <Truck className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-mono font-bold uppercase tracking-wider text-[#A82D1B]">
-                      Aviso: Para onde enviar o presente
-                    </div>
-                    <p className="text-[11px] text-[#4B5A72]">
-                      Ao comprar online, solicite a entrega diretamente neste endereço:
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#FBF4E8] border border-[#F7E6D0] text-xs text-[#1B2F4E] space-y-1.5 mt-3">
-                  {settings.shippingRecipientName && (
-                    <div className="flex items-start gap-1.5">
-                      <span className="text-[#5B6B82] font-medium shrink-0">Destinatário:</span>
-                      <strong className="text-[#1B2F4E] font-semibold">{settings.shippingRecipientName}</strong>
-                    </div>
-                  )}
-                  <div className="flex items-start gap-1.5">
-                    <span className="text-[#5B6B82] font-medium shrink-0">Endereço:</span>
-                    <span className="font-semibold text-[#1B2F4E]">
-                      {settings.shippingStreet}
-                      {settings.shippingComplement ? `, ${settings.shippingComplement}` : ''}
-                    </span>
-                  </div>
-                  {(settings.shippingNeighborhood || settings.shippingCity) && (
-                    <div className="text-[#3E5070]">
-                      {settings.shippingNeighborhood ? `${settings.shippingNeighborhood} — ` : ''}
-                      {settings.shippingCity || ''}
-                    </div>
-                  )}
-                  {settings.shippingZip && (
-                    <div>
-                      <span className="text-[#5B6B82] font-medium">CEP:</span>{' '}
-                      <strong className="font-mono text-[#1B2F4E]">{settings.shippingZip}</strong>
-                    </div>
-                  )}
-                  {settings.shippingPhone && (
-                    <div>
-                      <span className="text-[#5B6B82] font-medium">Contato entrega:</span>{' '}
-                      <span className="font-medium text-[#1B2F4E]">{settings.shippingPhone}</span>
-                    </div>
-                  )}
-                  {settings.shippingNotes && (
-                    <div className="pt-1 text-[11px] text-[#5B6B82] italic border-t border-[#F7E6D0] mt-1.5">
-                      <strong>Instruções de entrega:</strong> {settings.shippingNotes}
-                    </div>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleCopyShippingAddress}
-                  className="w-full mt-3 h-11 px-4 rounded-xl bg-[#FBF4E8] hover:bg-[#F7E6D0] border border-[#E8D4B8] text-[#1B2F4E] text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer active:scale-[0.99]"
-                >
-                  {shippingCopied ? (
-                    <>
-                      <Check className="w-4 h-4 text-emerald-600" />
-                      <span className="text-emerald-700 font-bold">Endereço Completo Copiado!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-4 h-4 text-[#A82D1B]" />
-                      <span>Copiar Endereço Completo de Entrega</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            )}
+            {renderShipping()}
 
             <button
               type="button"
@@ -562,14 +574,26 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
             </div>
 
             {isSoldOut ? (
-              <div className="text-center py-6">
+              <div className="text-center py-2">
                 <div className="p-4 rounded-2xl bg-[#FDE9E3] border border-[#E8D4B8] text-[#A82D1B] font-medium text-sm mb-4">
                   🎉 Esse presente já está garantido! Todas as cotas foram reservadas por amigos incríveis.
                 </div>
+
+                {(gift.purchaseUrl || settings?.shippingStreet?.trim()) && (
+                  <p className="text-xs text-[#4B5A72] leading-relaxed mb-4">
+                    Já comprou ou quer comprar mesmo assim? Sem problema — deixei o link e o endereço de entrega aqui para facilitar.
+                    Se for comprar, me avisa pelo WhatsApp para a gente não repetir presente 💛
+                  </p>
+                )}
+
+                {renderPurchaseLink('Link da loja indicada para este presente:')}
+
+                {renderShipping()}
+
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-6 py-2.5 rounded-xl border border-[#E8D4B8] text-xs font-semibold text-[#4B5A72] hover:text-[#1B2F4E]"
+                  className="px-6 py-2.5 rounded-xl border border-[#E8D4B8] text-xs font-semibold text-[#4B5A72] hover:text-[#1B2F4E] cursor-pointer"
                 >
                   Escolher outro presente
                 </button>

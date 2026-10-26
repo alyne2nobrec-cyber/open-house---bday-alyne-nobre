@@ -399,8 +399,21 @@ export const GiftRegistry: React.FC<GiftRegistryProps> = ({ gifts, onSelectGift 
 
                       {/* Action Buttons */}
                       {isSoldOut || isUnavailable ? (
-                        <div className="w-full h-11 rounded-xl bg-[#F3E3CB] text-[#5B6B82] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed">
-                          <span>{isUnavailable ? 'Temporariamente indisponível' : 'Presente já garantido ❤️'}</span>
+                        <div className="space-y-2">
+                          <div className="w-full h-11 rounded-xl bg-[#F3E3CB] text-[#5B6B82] text-xs font-semibold flex items-center justify-center gap-1.5 cursor-not-allowed">
+                            <span>{isUnavailable ? 'Temporariamente indisponível' : 'Presente já garantido ❤️'}</span>
+                          </div>
+
+                          {isSoldOut && hasExternalLink && (
+                            <button
+                              type="button"
+                              onClick={() => onSelectGift(gift)}
+                              className="w-full h-9 rounded-xl bg-white hover:bg-[#FBF4E8] border border-[#E8D4B8] text-[#4B5A72] hover:text-[#1B2F4E] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-[#CF3B25]" />
+                              <span>Ver link e endereço de entrega</span>
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="space-y-2">
