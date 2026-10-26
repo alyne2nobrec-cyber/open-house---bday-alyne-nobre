@@ -581,8 +581,8 @@ export const GiftReserveModal: React.FC<GiftReserveModalProps> = ({
 
                 {(gift.purchaseUrl || settings?.shippingStreet?.trim()) && (
                   <p className="text-xs text-[#4B5A72] leading-relaxed mb-4">
-                    Já comprou ou quer comprar mesmo assim? Sem problema — deixei o link e o endereço de entrega aqui para facilitar.
-                    Se for comprar, me avisa pelo WhatsApp para a gente não repetir presente 💛
+                    Esse produto já foi escolhido! 
+                    Se foi você quem adquiriu e precisa reacesar o link sugerido ou conferir o endereço de envio, veja as informações abaixo 💛
                   </p>
                 )}
 
